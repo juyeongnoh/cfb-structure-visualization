@@ -154,10 +154,29 @@
     /* ---------- 3단계: DIFAT 조립 -------------------------------------- */
     var difat = [];
     var difatSectors = [];
-    for (var i = 0; i < C.HEADER_DIFAT_LEN; i++) {
-      var v = r.u32(C.HEADER_DIFAT_OFF + i * 4);
-      if (v === C.FREESECT) break;
-      difat.push(v);
+    /* 헤더 DIFAT을 몇 칸까지 믿을 것인가.
+     * "FREESECT가 나올 때까지" 읽는 구현이 많지만, 남는 칸을 0으로 채우는
+     * 작성기가 있고 0은 "섹터 0"이라는 멀쩡한 번호다. 그래서 개수는
+     * Number of FAT Sectors 필드에서 가져오고, 그 필드가 미덥지 않을 때만
+     * 훑어 읽기로 되돌아간다. */
+    var declared = Math.min(h.numFatSectors, C.HEADER_DIFAT_LEN);
+    var i;
+    if (declared > 0) {
+      for (i = 0; i < declared; i++) {
+        var dv2 = r.u32(C.HEADER_DIFAT_OFF + i * 4);
+        if (dv2 === C.FREESECT) {
+          warn.push('헤더가 FAT 섹터 ' + h.numFatSectors + '개라고 하는데 DIFAT ' + i + '번째 칸이 이미 비어 있다');
+          break;
+        }
+        difat.push(dv2);
+      }
+    } else {
+      for (i = 0; i < C.HEADER_DIFAT_LEN; i++) {
+        var dv3 = r.u32(C.HEADER_DIFAT_OFF + i * 4);
+        if (dv3 === C.FREESECT) break;
+        difat.push(dv3);
+      }
+      if (difat.length) warn.push('Number of FAT Sectors가 0이라 DIFAT을 직접 훑어 읽었다');
     }
     var headerDifatCount = difat.length;
     var ds = h.firstDifatSector, guard = 0;
@@ -330,6 +349,14 @@
       rootEnt.children = [];
       if (rootEnt.child !== C.NOSTREAM) walkTree(rootEnt.child, '', 0, rootEnt.children);
     }
+    var orphans = entries.filter(function (e) {
+      return e.type !== C.TYPE_UNALLOCATED && e.path === undefined;
+    });
+    if (orphans.length) {
+      warn.push('트리에서 닿을 수 없는 엔트리가 ' + orphans.length + '개 있다 (' +
+        orphans.slice(0, 4).map(function (e) { return '"' + e.displayName + '"'; }).join(', ') +
+        ') — 디스크에는 멀쩡히 있지만 어느 폴더에도 매달려 있지 않다');
+    }
     step({
       id: 'tree', phase: 'dir', title: '10. 레드-블랙 트리를 중위 순회해서 폴더 목록을 얻는다',
       detail: '한 폴더의 자식들은 배열이 아니라 레드-블랙 트리로 묶여 있다. left/right를 따라 중위 순회(in-order)하면 ' +
@@ -431,6 +458,7 @@
       miniStreamSize: rootEnt ? rootEnt.size : 0,
       entries: entries,
       live: live,
+      orphans: orphans,
       root: rootEnt,
       byPath: byPath,
       roles: roles,

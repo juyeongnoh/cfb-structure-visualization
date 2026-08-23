@@ -1,2 +1,4 @@
 node_modules/
 package-lock.json
+# 로컬 브라우저 점검 스크립트 (커밋하지 않는다)
+*.local.mjs

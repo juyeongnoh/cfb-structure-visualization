@@ -91,7 +91,7 @@
   </div>
 
   <figure>
-    <svg viewBox="0 0 880 300" role="img" aria-label="평평한 파일에서는 중간 데이터가 커지면 뒤의 모든 것이 밀리지만, 섹터로 나눈 파일에서는 섹터 하나를 뒤에 덧붙이고 연결 순서만 고치면 된다">
+    <svg viewBox="0 0 880 330" role="img" aria-label="평평한 파일에서는 중간 데이터가 커지면 뒤의 모든 것이 밀리지만, 섹터로 나눈 파일에서는 섹터 하나를 뒤에 덧붙이고 연결 순서만 고치면 된다">
       <defs><marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
       <text x="0" y="16" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity=".65">평평한 파일 — 표가 20바이트 커지면</text>
 
@@ -113,24 +113,24 @@
       <path d="M270,70 L310,88" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#ar1)"/>
       <text x="316" y="80" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">전부 20바이트씩 이동 · 전체를 다시 쓴다</text>
 
-      <line x1="0" y1="152" x2="880" y2="152" stroke="currentColor" stroke-width="1" opacity=".2"/>
+      <line x1="0" y1="150" x2="880" y2="150" stroke="currentColor" stroke-width="1" opacity=".2"/>
 
-      <text x="0" y="180" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity=".65">섹터로 나눈 파일 — 같은 상황</text>
+      <text x="0" y="176" font-family="IBM Plex Mono, monospace" font-size="12" fill="currentColor" opacity=".65">섹터로 나눈 파일 — 같은 상황</text>
       <g font-family="IBM Plex Mono, monospace" font-size="11">
-        <rect x="0"   y="194" width="70" height="30" class="dia-fill-surface" stroke="currentColor"/><text x="35"  y="214" text-anchor="middle" fill="currentColor">0</text>
-        <rect x="74"  y="194" width="70" height="30" class="dia-fill-dir"/><text x="109" y="214" text-anchor="middle" fill="#fff">1</text>
-        <rect x="148" y="194" width="70" height="30" class="dia-fill-surface" stroke="currentColor"/><text x="183" y="214" text-anchor="middle" fill="currentColor">2</text>
-        <rect x="222" y="194" width="70" height="30" class="dia-fill-surface" stroke="currentColor"/><text x="257" y="214" text-anchor="middle" fill="currentColor">3</text>
-        <rect x="296" y="194" width="70" height="30" stroke="currentColor" stroke-dasharray="4 3" fill="none"/><text x="331" y="214" text-anchor="middle" fill="currentColor" opacity=".5">빈 곳</text>
-        <rect x="370" y="194" width="70" height="30" class="dia-fill-dir"/><text x="405" y="214" text-anchor="middle" fill="#fff">4</text>
+        <rect x="0"   y="190" width="70" height="30" class="dia-fill-surface" stroke="currentColor"/><text x="35"  y="210" text-anchor="middle" fill="currentColor">0</text>
+        <rect x="74"  y="190" width="70" height="30" class="dia-fill-dir"/><text x="109" y="210" text-anchor="middle" fill="#fff">1</text>
+        <rect x="148" y="190" width="70" height="30" class="dia-fill-surface" stroke="currentColor"/><text x="183" y="210" text-anchor="middle" fill="currentColor">2</text>
+        <rect x="222" y="190" width="70" height="30" class="dia-fill-surface" stroke="currentColor"/><text x="257" y="210" text-anchor="middle" fill="currentColor">3</text>
+        <rect x="296" y="190" width="70" height="30" stroke="currentColor" stroke-dasharray="4 3" fill="none"/><text x="331" y="210" text-anchor="middle" fill="currentColor" opacity=".5">빈 곳</text>
+        <rect x="370" y="190" width="70" height="30" class="dia-fill-dir"/><text x="405" y="210" text-anchor="middle" fill="#fff">4</text>
       </g>
-      <path d="M109,190 C 160,160 360,160 405,190" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#ar1)"/>
-      <text x="215" y="160" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">표는 섹터 1 → 4 로 이어진다</text>
-      <text x="460" y="214" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">섹터 하나를 뒤에 덧붙이고,</text>
-      <text x="460" y="230" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">"1 다음은 4" 라고 표에 적으면 끝.</text>
-      <text x="460" y="246" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity=".65">다른 데이터는 한 바이트도 움직이지 않는다.</text>
+      <text x="470" y="196" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">섹터 하나를 뒤에 덧붙이고,</text>
+      <text x="470" y="212" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">"1 다음은 4" 라고 표에 적으면 끝.</text>
+      <text x="470" y="228" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity=".65">다른 데이터는 한 바이트도 움직이지 않는다.</text>
+      <path d="M109,224 C 150,262 364,262 405,226" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#ar1)"/>
+      <text x="257" y="278" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">표는 섹터 1 → 4 로 이어진다</text>
 
-      <text x="0" y="278" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity=".55">— 이 아이디어는 새롭지 않다. 디스크의 FAT 파일시스템이 정확히 이렇게 한다. CFB는 그것을 파일 하나 안으로 옮겨 온 것이다.</text>
+      <text x="0" y="312" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity=".55">— 이 아이디어는 새롭지 않다. 디스크의 FAT 파일시스템이 정확히 이렇게 한다. CFB는 그것을 파일 하나 안으로 옮겨 온 것이다.</text>
     </svg>
     <figcaption>CFB의 존재 이유는 이 한 장으로 끝난다. 데이터를 고정 크기 조각으로 자르고, 조각의 순서를 별도의 표에 적어 두면, 중간을 고쳐도 뒤가 밀리지 않는다.</figcaption>
   </figure>
@@ -150,7 +150,7 @@
       <li><b>Office 97–2003</b>: <code>.doc</code> <code>.xls</code> <code>.ppt</code> <code>.dot</code> <code>.xlt</code> <code>.pot</code></li>
       <li><b>Windows Installer</b>: <code>.msi</code> <code>.msp</code> — 지금도 현역이다</li>
       <li><b>Outlook 메시지</b>: <code>.msg</code></li>
-      <li><b>Thumbs.db</b>, 일부 <code>.vsd</code>(Visio), <code>.pub</code>(Publisher), 오래된 CAD 파일</li>
+      <li><b>Thumbs.db</b>, 일부 <code>.vsd</code>(Visio), <code>.pub</code>(Publisher), Autodesk Inventor <code>.ipt</code></li>
       <li><b>암호가 걸린 OOXML</b>: 암호화된 <code>.docx</code>는 CFB 껍데기 안에 들어간다</li>
     </ul>
 
@@ -162,6 +162,21 @@
         다만 <b>암호를 건 <code>.docx</code>는 다시 CFB가 된다</b> — 암호화된 ZIP 덩어리를
         <code>EncryptedPackage</code>라는 스트림에 담아 CFB 컨테이너에 넣기 때문이다.
         아래 <a href="#real">09장</a>에서 직접 확인해 볼 수 있다.
+      </p>
+      <p style="margin-bottom:0">
+        반대 방향의 중첩도 있다. 매크로가 든 <code>.docm</code>은 ZIP이지만, 그 안의
+        <code>word/vbaProject.bin</code>은 <b>완전한 CFB 파일 한 벌</b>이다.
+        CFB는 2007년에 사라진 게 아니라 <b>한 층 아래로 내려갔다.</b>
+      </p>
+    </div>
+
+    <div class="insight trap">
+      <div class="insight-label">정확히 말하면</div>
+      <p style="margin-bottom:0">
+        "파일 안의 파일시스템"은 좋은 비유지만 과장이기도 하다. CFB에는
+        <b>권한도, 저널링도, 하드 링크도, 동시 다중 쓰기도, 빈 공간 자동 회수도 없다.</b>
+        큰 스트림을 지워도 파일은 그대로 그 크기다 — 프로그램이 전체를 다시 쓰기 전까지는.
+        있는 것은 딱 네 가지다: 고정 크기 섹터, 할당 테이블, 디렉터리, 그리고 그 위에 얹힌 관례.
       </p>
     </div>
   </div>
@@ -205,6 +220,11 @@
         헤더 뒤의 3584바이트는 그냥 0으로 채운 패딩이다.
         섹터 번호를 오프셋으로 바꾸는 공식이 <code>(섹터번호 + 1) × 섹터크기</code>인 이유가 이것이다 —
         "+1"은 <em>헤더 구조체 512바이트</em>가 아니라 <em>헤더가 차지한 섹터 한 장</em>을 건너뛰는 것이다.
+      </p>
+      <p style="margin-bottom:0">
+        그래서 <code>512 + n × 섹터크기</code>라고 쓰면 안 된다. v3에서는 두 식이 같은 답을 내기 때문에
+        <b>버그가 v4 파일을 열기 전까지 보이지 않는다.</b> 그때는 모든 읽기가 3584바이트씩 앞으로 어긋난다.
+        직접 만든 파서에서 가장 흔한 실수다.
       </p>
     </div>
   </div>
@@ -801,7 +821,15 @@
       <li><b>남아 있는 데이터.</b> 8장에서 본 그대로다. 빈 섹터와 마지막 섹터의 남은 자리(슬랙)는
         포렌식 조사에서 가장 먼저 들여다보는 곳 중 하나다.</li>
       <li><b>중첩된 문서.</b> <code>ObjectPool</code> 안에 또 다른 CFB 파일이 통째로 들어 있을 수 있다.
-        검사기가 한 겹만 벗기면 안쪽을 놓친다.</li>
+        검사기가 한 겹만 벗기면 안쪽을 놓친다. <code>.docm</code> 안의
+        <code>vbaProject.bin</code>도 마찬가지다.</li>
+      <li><b>고아 스트림.</b> 디렉터리 배열에는 살아 있는데 어느 폴더의 트리에도 매달려 있지 않은
+        엔트리가 있을 수 있다. 백신이 매크로를 "치료"한 문서에서 특히 흔하다.
+        <b>트리만 순회하는 도구는 이것을 통째로 놓친다.</b> 이 페이지의 파서는 평평한 배열과
+        트리를 모두 훑어서 둘이 어긋나면 경고를 남긴다 — 파일을 열어 보면 위에 표시된다.</li>
+      <li><b>죽은 쪽 스트림.</b> <code>.doc</code>에는 <code>0Table</code>과 <code>1Table</code>이
+        둘 다 있을 수 있고, FIB의 플래그가 어느 쪽이 살아 있는지 정한다.
+        읽는 쪽은 죽은 쪽을 무시해야 하지만, 조사하는 쪽에게는 그게 이전 저장본의 흔적이다.</li>
     </ul>
   </div>
  </div>
@@ -849,6 +877,15 @@
         <li>FAT 체인의 순환을 검사하지 않음 — 무한 루프.</li>
         <li>디렉터리 섹터 개수를 헤더에서 읽으려 함 — <b>v3에서는 0</b>이라 체인을 따라가야 한다.</li>
         <li>0x05, 0x01로 시작하는 스트림 이름을 문자열로 출력 — 제어 문자다.</li>
+        <li>DIFAT 섹터의 "다음" 포인터를 앞에서 찾음 — <b>마지막 4바이트</b>다.</li>
+        <li>DIFAT 섹터가 128칸을 다 쓴다고 계산 — <b>127칸</b>이다 (FAT 섹터는 128칸을 다 쓴다).</li>
+        <li>헤더 DIFAT을 FREESECT까지만 읽음 — 남는 칸을 0으로 채우는 작성기가 있고,
+            0은 "섹터 0"이라는 멀쩡한 번호다. 개수는 Number of FAT Sectors에서 가져오는 편이 안전하다.</li>
+        <li>저장소(폴더) 엔트리의 시작 섹터·크기를 신뢰 — 0이어야 하지만 쓰레기가 든 파일이 많다.</li>
+        <li>Java·C#·JS의 <code>readInt32</code>로 읽어 특수값이 −1 … −6으로 나오는 것을
+            부호 없는 값과 섞어 비교 — 한쪽 코드 경로에서만 부호를 바꾸면 조용히 틀린다.</li>
+        <li>레드-블랙 균형을 읽을 때 검증 — 실제 파일에는 빨강이 연달아 붙은 트리도,
+            일부러 한쪽으로 늘어뜨린 트리도 흔하다. 순서만 확인하고 균형은 눈감는 편이 낫다.</li>
       </ol>
     </div>
   </div>

@@ -470,7 +470,7 @@
   function serialize(m) {
     var SS = m.SS, per = SS / 4;
     var total = m.sectors.length;
-    var buf = new Uint8Array((SS === 512 ? 512 : SS) + total * SS);
+    var buf = new Uint8Array(SS + total * SS);   /* 헤더가 차지한 섹터 한 장 + 데이터 섹터들 */
     var dv = new DataView(buf.buffer);
     /* 손상된 파일에서 온 섹터 번호가 버퍼 밖을 가리킬 수 있다. 조용히 버린다. */
     var u16 = function (o, v) { if (o >= 0 && o + 2 <= buf.length) dv.setUint16(o, v, true); };

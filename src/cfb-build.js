@@ -273,7 +273,9 @@
     plan.miniStreams.forEach(function (e) { e.start = e.miniStart; });
 
     /* 7) 직렬화 ------------------------------------------------------------- */
-    var fileLen = SS === 512 ? 512 + total * SS : SS + total * SS;
+    /* 파일 길이 = 헤더가 차지한 섹터 한 장 + 데이터 섹터들.
+       v3에서 512 + total×512 라고 써도 답이 같지만, 그렇게 외우면 v4에서 틀린다. */
+    var fileLen = SS + total * SS;
     var buf = new Uint8Array(fileLen);
     var w = new W(buf);
     var sectOff = function (s) { return (s + 1) * SS; };
