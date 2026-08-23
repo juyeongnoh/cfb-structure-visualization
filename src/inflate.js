@@ -283,7 +283,25 @@
     return bw.finish();
   }
 
+  /* ---------- CRC-32 (RFC 1952) ------------------------------------------
+   * 한글은 압축 데이터 뒤에 8바이트를 덧붙인다: CRC-32 + 원본 길이.
+   * gzip 꼬리에서 머리만 뗀 모양이다. 명세에는 없고, 읽는 쪽도 보지 않는다. */
+  var CRC_TABLE = (function () {
+    var t = new Uint32Array(256);
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    var c = 0xffffffff;
+    for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
   root.Inflate = {
-    inflateRaw: inflateRaw, inflateAuto: inflateAuto, deflateRaw: deflateRaw
+    inflateRaw: inflateRaw, inflateAuto: inflateAuto, deflateRaw: deflateRaw, crc32: crc32
   };
 })(typeof window !== 'undefined' ? window : globalThis);

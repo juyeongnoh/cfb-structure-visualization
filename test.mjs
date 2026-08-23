@@ -436,6 +436,101 @@ for (const compressed of [true, false]) {
   wide.forEach((w) => ok(w.len === 16, `${label}: 확장 컨트롤은 16바이트`));
 }
 
+section('HWP 파생 값과 쓰기 규칙');
+{
+  /* 샘플 자체가 앞뒤가 맞아야 교재가 된다 */
+  const p = HWPParse.parse(CFBParse.parse(HWPBuild.compose({}).bytes));
+  ok(p.mismatches.length === 0, `모든 문단에서 글자 수 × 2 = PARA_TEXT 크기 (어긋남 ${p.mismatches.length}건)`);
+  ok(p.paragraphs.some((x) => x.lastInList),
+     '최상위 비트(목록의 마지막 문단) 깃발이 실제로 켜진 문단이 있다');
+  ok(p.paragraphs.every((x) => x.declared === x.actual),
+     '깃발을 가리고 세면 전부 일치한다');
+
+  /* 압축 꼬리 */
+  const withTrailer = p.streams.filter((s) => s.trailer && s.trailer.bytes >= 8);
+  ok(withTrailer.length >= 2, `압축 스트림에 8바이트 꼬리가 붙어 있다 (${withTrailer.length}개)`);
+  withTrailer.forEach((s) => {
+    ok(s.trailer.crcOk, `${s.displayPath}: 꼬리의 CRC-32 가 압축을 푼 데이터와 일치`);
+    ok(s.trailer.sizeOk, `${s.displayPath}: 꼬리의 원본 길이가 일치`);
+  });
+
+  /* DocInfo 의 정의들은 ID_MAPPINGS 아래(레벨 1)에 매달린다 */
+  const doc = p.recordStreams.find((s) => s.path === '/DocInfo');
+  const idm = doc.records.find((r) => HC.tagName(r.tag) === 'ID_MAPPINGS');
+  ok(idm && idm.level === 0, 'ID_MAPPINGS 는 레벨 0');
+  const defs = doc.records.filter((r) => /^(FACE_NAME|CHAR_SHAPE|PARA_SHAPE|STYLE|BORDER_FILL|TAB_DEF|BIN_DATA)$/
+    .test(HC.tagName(r.tag)));
+  ok(defs.length > 0 && defs.every((r) => r.level === 1),
+     `정의 레코드 ${defs.length}개가 모두 레벨 1 — ID_MAPPINGS 아래에 매달린다`);
+
+  /* 표: 칸 안 문단은 LIST_HEADER 의 형제여야 한다 (자식이 아니라) */
+  const sec = p.recordStreams.find((s) => /Section0/.test(s.path));
+  const lh = sec.records.filter((r) => HC.tagName(r.tag) === 'LIST_HEADER');
+  ok(lh.length >= 4, `표의 칸(LIST_HEADER) ${lh.length}개`);
+  lh.forEach((r) => {
+    const next = sec.records[r.index + 1];
+    ok(next && HC.tagName(next.tag) === 'PARA_HEADER' && next.level === r.level,
+       `LIST_HEADER #${r.index} 다음 문단이 같은 레벨의 형제다 (레벨 ${next ? next.level : '?'} vs ${r.level})`);
+  });
+
+  /* CTRL_HEADER 의 네 글자는 디스크에 뒤집혀 놓인다 */
+  const ctrl = sec.records.filter((r) => HC.tagName(r.tag) === 'CTRL_HEADER');
+  ok(ctrl.length >= 2, `CTRL_HEADER ${ctrl.length}개`);
+  const diskIds = ctrl.map((r) => {
+    const o = r.payloadOffset;
+    return String.fromCharCode(sec.data[o], sec.data[o + 1], sec.data[o + 2], sec.data[o + 3]);
+  });
+  ok(diskIds.includes('dces'), `구역 정의 컨트롤이 디스크에 "dces" 로 놓인다 — ${JSON.stringify(diskIds)}`);
+  ok(diskIds.includes(' lbt'), `표 컨트롤이 디스크에 " lbt" 로 놓인다`);
+
+  /* BinData: "압축 안 함" 으로 표시된 항목은 원본 그대로 */
+  const bin = p.streams.find((s) => /BinData/.test(s.path));
+  ok(bin && bin.data[0] === 0x89 && bin.data[1] === 0x50,
+     'BinData 항목이 PNG 원본 그대로 들어 있다 (압축 안 함으로 표시)');
+}
+
+section('HWP 쓰기 — 파생 값을 빠뜨리면');
+{
+  /* 정상 편집: 앞뒤가 맞아야 한다 */
+  const good = HWPParse.parse(CFBParse.parse(
+    HWPBuild.compose({ edit: { index: 1, text: '짧게 고쳤다.' } }).bytes));
+  ok(good.ok && good.mismatches.length === 0, '정상 편집: 어긋남 없음');
+  ok(good.text.includes('짧게 고쳤다.'), '정상 편집: 새 글자가 실제로 들어갔다');
+
+  /* 글자 수만 안 고치면 — 파일은 열리지만 값이 어긋난다 */
+  const bad = HWPParse.parse(CFBParse.parse(
+    HWPBuild.compose({ edit: { index: 1, text: '짧게 고쳤다.' }, omit: 'nChars' }).bytes));
+  ok(bad.ok, '글자 수를 안 고쳐도 파일 자체는 여전히 열린다');
+  ok(bad.mismatches.length === 1, `어긋남이 정확히 1건 잡힌다 (${bad.mismatches.length})`);
+  ok(bad.warn.some((w) => /글자 수/.test(w)), '파서가 경고를 남긴다');
+
+  /* 미리보기만 안 고치면 — 경고조차 없다 */
+  const stale = HWPParse.parse(CFBParse.parse(
+    HWPBuild.compose({ edit: { index: 1, text: '짧게 고쳤다.' }, omit: 'prvText' }).bytes));
+  ok(stale.ok && stale.mismatches.length === 0 && stale.warn.length === 0,
+     '미리보기를 안 고치면 형식상 아무 문제가 없다 — 경고도 없다');
+  const prv = stale.streams.find((s) => s.path === '/PrvText');
+  let dec = '';
+  for (let i = 0; i + 1 < prv.data.length; i += 2) dec += String.fromCharCode(prv.data[i] | (prv.data[i + 1] << 8));
+  ok(!dec.includes('짧게 고쳤다.') && stale.text.includes('짧게 고쳤다.'),
+     '그래서 미리보기가 본문과 어긋난 채로 남는다');
+
+  /* 4095 경계: 쓰는 쪽은 >= 로 비교해야 한다 */
+  const at4095 = new Uint8Array(4095);
+  const r = new HWPBuild.Rec();
+  r.add('PARA_TEXT', 1, at4095);
+  const bytes = r.bytes();
+  ok(bytes.length === 4095 + 8, `내용 4095바이트는 확장 헤더(8바이트)를 써야 한다 — 실제 ${bytes.length - 4095}바이트`);
+  const hdr = new DataView(bytes.buffer).getUint32(0, true);
+  ok(((hdr >>> HC.SIZE_SHIFT) & HC.SIZE_MASK) === HC.SIZE_ESCAPE,
+     '크기 자리에 0xFFF 가 들어간다');
+  ok(new DataView(bytes.buffer).getUint32(4, true) === 4095, '뒤이은 4바이트가 진짜 크기 4095');
+  /* 4094 는 보통 헤더 */
+  const r2 = new HWPBuild.Rec();
+  r2.add('PARA_TEXT', 1, new Uint8Array(4094));
+  ok(r2.bytes().length === 4094 + 4, '내용 4094바이트는 보통 헤더(4바이트)');
+}
+
 section('HWP 방어');
 {
   /* CFB이지만 HWP가 아닌 파일 */

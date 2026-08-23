@@ -75,15 +75,20 @@
         break;
       case 'BIN_DATA': {
         var t = u16(0);
-        add(0, 2, '속성', t !== null ? '0x' + t.toString(16).toUpperCase() : null,
-            '하위 4비트: 0=연결, 1=포함, 2=스토리지');
+        add(0, 2, '속성', t !== null ? '0x' + t.toString(16).toUpperCase() +
+            '  (종류 ' + (t & 0xf) + ', 압축 ' + ((t >> 4) & 3) + ')' : null,
+            '하위 4비트 = 종류(0 연결·1 포함·2 스토리지), 비트 4~5 = 압축(0 기본·1 무조건·2 안 함)');
         add(2, 2, 'BinData 항목 번호', u16(2), 'BinData/BIN000N 의 N');
         var ext = wstr(b, 4);
         add(4, ext.len, '확장자', '"' + ext.text + '"');
         break;
       }
-      case 'PARA_HEADER':
-        add(0, 4, '글자 수', u32(0), 'PARA_TEXT 가 담을 WCHAR 개수');
+      case 'PARA_HEADER': {
+        var raw = u32(0);
+        var nch = raw === null ? null : (raw & 0x7fffffff);
+        add(0, 4, '글자 수', nch === null ? null :
+            nch + (raw & 0x80000000 ? '   (최상위 비트가 켜져 있다 — 목록의 마지막 문단)' : ''),
+            '최상위 비트는 개수가 아니라 깃발이다. 0x7FFFFFFF 로 가려야 한다');
         add(4, 4, '컨트롤 마스크', u32(4) !== null ? '0x' + u32(4).toString(16) : null,
             '이 문단에 어떤 제어 문자가 들어 있는지의 비트 요약');
         add(8, 2, '문단 모양 번호', u16(8), 'DocInfo 의 PARA_SHAPE 배열 인덱스');
@@ -95,6 +100,7 @@
         add(18, 4, '문단 인스턴스 ID', u32(18));
         if (b.length >= 24) add(22, 2, '변경 추적 병합', u16(22), '5.0.3.2 이상에서만 있는 필드');
         break;
+      }
       case 'PARA_CHAR_SHAPE':
         for (var k = 0; k * 8 + 8 <= b.length; k++) {
           add(k * 8, 8, '구간 ' + k,
@@ -108,8 +114,9 @@
         if (id !== null) {
           chars = String.fromCharCode((id >>> 24) & 0xff, (id >>> 16) & 0xff, (id >>> 8) & 0xff, id & 0xff);
         }
-        add(0, 4, '컨트롤 ID', '"' + chars + '"',
-            '네 글자를 뒤집어 넣기 때문에 hex 뷰에서는 거꾸로 보인다. tbl=표, dces=구역 정의, gso=그리기');
+        var disk = chars.split('').reverse().join('');
+        add(0, 4, '컨트롤 ID', '"' + chars + '"   (디스크에는 "' + disk + '" 순서로)',
+            '논리적 이름은 tbl =표, secd=구역 정의, gso =그리기. 디스크에는 네 글자가 뒤집혀 놓인다');
         break;
       }
       case 'TABLE':
@@ -119,11 +126,12 @@
         add(8, 2, '셀 간격', u16(8));
         break;
       case 'LIST_HEADER':
-        add(0, 2, '문단 개수', u16(0), '이 칸(혹은 컨트롤) 안에 문단이 몇 개인지');
-        add(2, 4, '속성', u32(2) !== null ? '0x' + u32(2).toString(16) : null);
-        add(6, 2, '열 주소', u16(6));
-        add(8, 2, '행 주소', u16(8));
-        add(14, 4, '칸 너비', u16(14));
+        add(0, 4, '문단 개수', u32(0),
+            '뒤따라오는 "같은 레벨"의 PARA_HEADER 를 이만큼 세어 가면 이 칸에 속한 문단이다');
+        add(4, 4, '속성', u32(4) !== null ? '0x' + u32(4).toString(16) : null);
+        add(8, 2, '열 주소', u16(8));
+        add(10, 2, '행 주소', u16(10));
+        add(16, 4, '칸 너비', u32(16));
         break;
       case 'PAGE_DEF':
         add(0, 4, '용지 가로', u32(0) !== null ? (u32(0) / 7200).toFixed(2) + ' 인치' : null, '1/7200 인치 단위');
@@ -561,6 +569,19 @@
                    Math.round(100 - s.raw.length / s.data.length * 100) + '% 절약)');
         lines.push('DEFLATE 블록 ' + s.inflated.blocks + '개, zlib 헤더 ' +
                    (s.inflated.zlibHeader ? '있음' : '없음 (raw deflate)') + '.');
+        if (s.trailer && s.trailer.bytes >= 8) {
+          lines.push('');
+          lines.push('압축 데이터는 ' + U.hex(s.trailer.at, 6) + ' 에서 끝나고, 그 뒤 8바이트가 더 있다:');
+          lines.push('  CRC-32   ' + U.hex(s.trailer.crc, 8) +
+                     (s.trailer.crcZero ? '   ← 0이다. 이 파일을 쓴 프로그램은 CRC를 계산하지 않았다'
+                                        : s.trailer.crcOk ? '   ← 풀어 낸 데이터와 일치한다' : '   ← 맞지 않는다'));
+          lines.push('  원본 길이 ' + U.hex(s.trailer.size, 8) + ' = ' + U.num(s.trailer.size) +
+                     (s.trailer.sizeOk ? '   ← 일치' : '   ← 맞지 않는다'));
+          lines.push('  이 8바이트는 명세에 없다. gzip 꼬리에서 머리만 뗀 모양이고,');
+          lines.push('  inflate 는 마지막 블록에서 멈추므로 읽는 쪽은 대개 그냥 버린다.');
+        } else if (s.trailer) {
+          lines.push('압축 데이터 뒤에 남은 바이트: ' + s.trailer.bytes + '개.');
+        }
         lines.push('');
         lines.push('왼쪽 첫 바이트: ' + Array.prototype.slice.call(s.raw.subarray(0, 6)).map(U.hexb).join(' ') +
                    ' …  — 아무 구조도 읽히지 않는다.');
@@ -570,8 +591,8 @@
                      '  = 레코드 머리 ' + U.hex(r0.raw, 8));
           lines.push('  → 태그 ' + r0.tag + '(' + H.tagName(r0.tag) + '), 레벨 ' + r0.level + ', 크기 ' + r0.size);
           lines.push('');
-          lines.push('압축을 풀어야만 구조가 보인다. 그리고 raw deflate에는 검사값이 없어서,');
-          lines.push('잘못 풀어도 예외 대신 그럴듯한 쓰레기가 나온다.');
+          lines.push('압축을 풀어야만 구조가 보인다. 그리고 위의 CRC를 아무도 확인하지 않기 때문에,');
+          lines.push('잘못 풀어도 예외 대신 그럴듯한 쓰레기가 나온다 — 검사할 수 있는데 하지 않는 것이다.');
         }
       }
       note.textContent = lines.join('\n');
@@ -888,6 +909,194 @@
   }
 
   /* ==================================================================
+   * 6b. 4095 경계 — 읽는 쪽과 쓰는 쪽의 규칙이 다르다
+   * ================================================================== */
+  function edgePanel(node) {
+    var slider = el('input', { type: 'range', min: '4088', max: '4100', value: '4095',
+      style: { width: 'min(420px,100%)' } });
+    var val = el('div', { class: 'val' });
+    var out = el('div', { class: 'readout', style: { marginTop: '.8rem' } });
+    node.appendChild(el('div', { class: 'calc' }, [
+      el('div', {}, [el('label', { text: '레코드 내용의 크기' }), val]),
+      el('div', { style: { flex: '1 1 280px' } }, [el('label', { text: '4088 – 4100 바이트' }), slider])
+    ]));
+    node.appendChild(out);
+
+    function draw() {
+      var n = +slider.value;
+      val.textContent = U.num(n) + ' B';
+      var correct = n >= H.SIZE_ESCAPE;        /* 4095 는 신호로 써 버렸으므로 값으로 쓸 수 없다 */
+      var buggy = n > H.SIZE_ESCAPE;           /* 실제 구현에 있었던 흔한 실수 */
+      var lines = [];
+      lines.push('올바른 작성기:  size >= 4095  →  ' +
+        (correct ? '확장 헤더 (머리 8바이트, 크기 자리에 0xFFF)' : '보통 헤더 (머리 4바이트, 크기 자리에 ' + n + ')'));
+      lines.push('흔한 버그   :  size >  4095  →  ' +
+        (buggy ? '확장 헤더' : '보통 헤더 (크기 자리에 ' + Math.min(n, 4095) + ')'));
+      lines.push('');
+      if (n === H.SIZE_ESCAPE) {
+        lines.push('★ 여기가 갈리는 지점이다.');
+        lines.push('');
+        lines.push('내용이 정확히 4095바이트일 때, > 로 비교하는 작성기는 보통 헤더를 쓰면서');
+        lines.push('크기 자리에 4095 = 0xFFF 를 적는다. 그런데 읽는 쪽에서 0xFFF 는');
+        lines.push('"뒤에 4바이트가 더 있다"는 신호다.');
+        lines.push('');
+        lines.push('그래서 읽는 쪽은 다음 레코드의 머리 4바이트를 "크기"로 집어삼키고,');
+        lines.push('그 뒤로 스트림 전체가 어긋난다. 파일은 열리지 않거나 엉뚱한 내용이 나온다.');
+        lines.push('');
+        lines.push('실제로 libhwp 라는 구현에 이 버그가 있었다.');
+      } else if (n > H.SIZE_ESCAPE) {
+        lines.push('4095를 넘으므로 두 규칙이 같은 답을 낸다 — 확장 헤더.');
+        lines.push('머리 8바이트 + 내용 ' + U.num(n) + '바이트.');
+      } else {
+        lines.push('4095 미만이라 두 규칙이 같은 답을 낸다 — 보통 헤더.');
+        lines.push('머리 4바이트 + 내용 ' + U.num(n) + '바이트.');
+      }
+      lines.push('');
+      lines.push('한 레코드가 보통 헤더로 담을 수 있는 크기: 0 – 4094 바이트.');
+      lines.push('4095는 값이 아니라 신호로 쓰였기 때문에, 12비트의 마지막 한 칸이 비어 있는 셈이다.');
+      out.textContent = lines.join('\n');
+    }
+    slider.oninput = draw;
+    return { render: draw };
+  }
+
+  /* ==================================================================
+   * 6c. 쓰기 실습실 — 파생 값을 하나 빼먹으면 무슨 일이 생기나
+   * ================================================================== */
+  function writeLab(node, rebuild) {
+    var picker = el('select', { class: 'btn' });
+    var input = el('input', { class: 'btn mono', type: 'text',
+      style: { flex: '1 1 320px', minWidth: '12rem' } });
+    var goB = el('button', { class: 'btn primary', type: 'button', text: '고쳐 쓰기' });
+    var badB = el('button', { class: 'btn danger', type: 'button', text: '글자 수는 그대로 두고 쓰기' });
+    var prvB = el('button', { class: 'btn danger', type: 'button', text: '미리보기는 그대로 두고 쓰기' });
+    var resetB = el('button', { class: 'btn', type: 'button', text: '원래대로' });
+    var out = el('div', { class: 'readout', style: { marginTop: '.9rem' } });
+    node.appendChild(el('div', { class: 'panel-tools', style: { marginLeft: 0, flexWrap: 'wrap' } },
+      [el('span', { class: 'note', text: '문단' }), picker, input, goB]));
+    node.appendChild(el('div', { class: 'panel-tools', style: { marginLeft: 0, marginTop: '.4rem' } },
+      [badB, prvB, resetB]));
+    node.appendChild(out);
+    var P = null, editable = [];
+
+    function fill() {
+      U.clear(picker);
+      editable = [];
+      (root.HWPBuild.PARAS || []).forEach(function (para, i) {
+        if (!para.text || para.long) return;
+        editable.push(i);
+        picker.appendChild(el('option', { value: i, text: '#' + i + '  ' + para.text.slice(0, 30) }));
+      });
+      if (editable.length) input.value = root.HWPBuild.PARAS[editable[0]].text;
+    }
+    picker.onchange = function () { input.value = root.HWPBuild.PARAS[+picker.value].text; };
+
+    function report(before, after, omit) {
+      var lines = [];
+      var idx = +picker.value;
+      var b = before.paragraphs, a = after.paragraphs;
+      lines.push('본문 한 문단의 글자를 바꿨다. 같이 바뀌어야 하는 것들:');
+      lines.push('');
+      var rows = [
+        ['PARA_TEXT 레코드 크기', before.secSize, after.secSize],
+        ['PARA_HEADER 의 글자 수', before.declared, after.declared],
+        ['레코드 머리 4바이트', U.hex(before.rawHeader, 8), U.hex(after.rawHeader, 8)],
+        ['PrvText 스트림 크기', before.prv, after.prv],
+        ['압축 뒤 스트림 크기', before.packed, after.packed],
+        ['CRC-32 꼬리', U.hex(before.crc, 8), U.hex(after.crc, 8)]
+      ];
+      rows.forEach(function (row) {
+        var same = String(row[1]) === String(row[2]);
+        lines.push('  ' + String(row[0]).padEnd(24) + String(row[1]).padStart(12) +
+                   '  →  ' + String(row[2]).padStart(12) + (same ? '   (그대로)' : ''));
+      });
+      lines.push('');
+      if (!omit) {
+        lines.push('여섯 가지가 전부 맞물려 바뀌었다. 파서가 남긴 경고: ' +
+                   (after.warn.length ? after.warn.join(' / ') : '없음.'));
+        lines.push('');
+        lines.push('이 중 어느 것도 파일 안에서 자동으로 계산되지 않는다.');
+        lines.push('전부 쓰는 쪽이 손으로 맞춰 넣어야 하고, 아무도 검사해 주지 않는다.');
+      } else if (omit === 'nChars') {
+        lines.push('※ 이번에는 PARA_HEADER 의 글자 수만 옛 값으로 남겨 두었다.');
+        lines.push('');
+        if (after.warn.length) {
+          after.warn.forEach(function (w) { lines.push('  ⚠ ' + w); });
+        }
+        lines.push('');
+        lines.push('파일은 여전히 "열린다". CFB도 멀쩡하고, 압축도 풀리고, 레코드도 잘 잘린다.');
+        lines.push('어긋난 것은 두 값의 관계뿐이다 — 그리고 그 관계를 검사하는 곳은 아무 데도 없다.');
+        lines.push('어떤 프로그램은 선언된 글자 수만큼만 읽어 뒷부분을 잘라 버리고,');
+        lines.push('어떤 프로그램은 레코드 크기를 믿고 전부 읽는다. 프로그램마다 다르게 보인다.');
+      } else {
+        lines.push('※ 이번에는 PrvText(미리보기 텍스트)를 옛 내용 그대로 두었다.');
+        lines.push('');
+        lines.push('본문:      "' + after.bodySnippet + '"');
+        lines.push('미리보기:  "' + after.prvSnippet + '"');
+        lines.push('');
+        lines.push('경고는 하나도 나오지 않는다. 형식상 아무 문제가 없기 때문이다.');
+        lines.push('미리보기는 원래 본문과 별개로 저장되는 값이라, 갱신을 빠뜨려도 파일은 유효하다.');
+        lines.push('그래서 실제 문서에서도 미리보기가 본문과 어긋나 있는 경우가 있다 —');
+        lines.push('검색 색인이나 포렌식에서 이 차이가 단서가 되기도 한다.');
+      }
+      out.textContent = lines.join('\n');
+    }
+
+    function snapshot(hwp) {
+      var idx = +picker.value;
+      var target = hwp.paragraphs.filter(function (x) { return x.text.replace(/[\n\t]/g, '').length; })[0];
+      /* 편집한 문단을 이름이 아니라 순서로 찾는다 */
+      var sec = hwp.recordStreams.filter(function (x) { return /Section/.test(x.path); })[0];
+      var headers = sec.records.filter(function (r) { return H.tagName(r.tag) === 'PARA_HEADER'; });
+      var texts = sec.records.filter(function (r) { return H.tagName(r.tag) === 'PARA_TEXT'; });
+      var order = editable.indexOf(idx) + 1;   /* 0번은 구역 정의 문단 */
+      var t = texts[order] || texts[0];
+      var h = headers[order] || headers[0];
+      var prvStream = hwp.streams.filter(function (x) { return x.path === '/PrvText'; })[0];
+      var secStream = hwp.streams.filter(function (x) { return /Section0/.test(x.path); })[0];
+      var dec = '';
+      for (var i = 0; i + 1 < Math.min(prvStream.data.length, 160); i += 2) {
+        dec += String.fromCharCode(prvStream.data[i] | (prvStream.data[i + 1] << 8));
+      }
+      return {
+        secSize: t.size, declared: h.declaredChars, rawHeader: t.raw,
+        prv: prvStream.size, packed: secStream.size,
+        crc: secStream.trailer ? secStream.trailer.crc : 0,
+        warn: hwp.warn,
+        bodySnippet: (hwp.paragraphs[order] ? hwp.paragraphs[order].text : '').replace(/[\n\t]/g, ' ').slice(0, 42),
+        prvSnippet: dec.split('\n').slice(0, 3).join(' / ').slice(0, 42)
+      };
+    }
+
+    function run(omit) {
+      var idx = +picker.value;
+      var before = snapshot(P);
+      var after = rebuild({ edit: { index: idx, text: input.value }, omit: omit });
+      if (!after) return;
+      report(before, snapshot(after), omit);
+      P = after;
+    }
+    goB.onclick = function () { run(null); };
+    badB.onclick = function () { run('nChars'); };
+    prvB.onclick = function () { run('prvText'); };
+    resetB.onclick = function () {
+      var after = rebuild({});
+      if (after) { P = after; fill();
+        out.textContent = '원래 문서로 되돌렸다. 문단을 골라 글자를 고친 뒤 버튼을 눌러 보자.'; }
+    };
+
+    function render(p) {
+      P = p;
+      if (!picker.options.length) fill();
+      if (!out.textContent) {
+        out.textContent = '문단을 고르고 글자를 바꾼 다음 "고쳐 쓰기"를 눌러 보자.\n' +
+          '레코드를 다시 만들고, 다시 압축하고, CFB에 다시 넣은 새 파일이 만들어진다.';
+      }
+    }
+    return { render: render };
+  }
+
+  /* ==================================================================
    * 7. 읽기 워크스루
    * ================================================================== */
   function walkPanel(node) {
@@ -956,7 +1165,7 @@
 
   root.HWPPanels = {
     recordMap: recordMap, headerPanel: headerPanel, streamPanel: streamPanel,
-    zipPanel: zipPanel, bitsPanel: bitsPanel,
+    zipPanel: zipPanel, bitsPanel: bitsPanel, edgePanel: edgePanel, writeLab: writeLab,
     recordPanel: recordPanel, treePanel: treePanel, textPanel: textPanel,
     walkPanel: walkPanel, decode: decode
   };

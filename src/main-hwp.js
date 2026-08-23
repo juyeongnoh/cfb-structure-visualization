@@ -168,6 +168,26 @@
     panels.records = root.HWPPanels.recordPanel(document.getElementById('hwp-record-panel'));
     panels.text = root.HWPPanels.textPanel(document.getElementById('hwp-text-panel'));
     panels.walk = root.HWPPanels.walkPanel(document.getElementById('hwp-walk-panel'));
+    panels.edge = root.HWPPanels.edgePanel(document.getElementById('hwp-edge-panel'));
+    panels.write = root.HWPPanels.writeLab(document.getElementById('hwp-write-lab'), function (opts) {
+      /* 실습실이 파일을 실제로 다시 만든다. 압축 여부는 현재 설정을 따른다. */
+      var bytes = root.HWPBuild.compose(Object.assign({
+        compressed: compressed, timestamp: Date.UTC(2024, 2, 14, 10, 0, 0)
+      }, opts)).bytes;
+      var cfb = root.CFBParse.parse(bytes);
+      var hwp = root.HWPParse.parse(cfb);
+      if (!hwp.ok) return null;
+      annotate(cfb, hwp);
+      U.set({ bytes: cfb.bytes, parsed: cfb, hwp: hwp });
+      ['header', 'streams', 'zip', 'bits', 'tree', 'records', 'text', 'walk'].forEach(function (k) {
+        try { panels[k].render(hwp); } catch (e) { console.error(k, e); }
+      });
+      heroMap.render(cfb, {});
+      heroStream = hwp.recordStreams.filter(function (x) { return /Section/.test(x.path); })[0];
+      if (heroStream) heroRec.render(heroStream, null);
+      buildRibbon(cfb); paintRibbon(null);
+      return hwp;
+    });
 
     U.subscribe(function (S) {
       if (!S.parsed) return;

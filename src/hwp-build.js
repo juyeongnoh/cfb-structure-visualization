@@ -57,7 +57,8 @@
     for (var i = 0; i < s.length; i++) dv.setUint16(i * 2, s.charCodeAt(i), true);
     return b;
   }
-  /* 컨트롤 ID: 네 글자를 뒤집어 uint32 로 넣는다. hex 뷰에서 " lbt" 처럼 보인다. */
+  /* 컨트롤 ID. 논리적 이름은 'tbl ', 'secd' 처럼 읽지만, 디스크에는 뒤집혀 놓인다
+   * (' lbt', 'dces'). uint32 로 조립해 리틀엔디언으로 쓰면 자연히 그렇게 된다. */
   function ctrlId(s) {
     return ((s.charCodeAt(0) << 24) | (s.charCodeAt(1) << 16) |
             (s.charCodeAt(2) << 8) | s.charCodeAt(3)) >>> 0;
@@ -88,9 +89,11 @@
 
   /* PARA_HEADER — 명세의 필드 순서 그대로.
    * 5.0.3.2 미만은 22바이트, 그 이상은 변경 추적 필드가 붙어 24바이트다. */
-  function paraHeader(nChars, ctrlMask, paraShapeId, styleId, charShapeCount) {
+  function paraHeader(nChars, ctrlMask, paraShapeId, styleId, charShapeCount, lastInList) {
     return new Buf(24)
-      .u32(nChars)            /* 글자 수 */
+      /* 최상위 비트는 개수가 아니라 깃발이다 — 이 목록의 마지막 문단인지를 표시한다.
+       * 읽는 쪽은 반드시 0x7FFFFFFF 로 가리고 세야 한다. */
+      .u32((nChars & 0x7fffffff) | (lastInList ? 0x80000000 : 0))
       .u32(ctrlMask)          /* 제어 문자 마스크 */
       .u16(paraShapeId)       /* 문단 모양 번호 */
       .u8(styleId)            /* 스타일 번호 */
@@ -121,7 +124,9 @@
    *   · 본문에 섞인 제어 문자 (탭, 표, 문단 끝)
    *   · 압축이 실제로 효과를 내는 반복 텍스트
    * ---------------------------------------------------------------------- */
-  var FONTS = ['함초롬바탕', '함초롬돋움', 'HY헤드라인M', 'Times New Roman'];
+  /* 언어 칸별로 나눠 담는다 — CHAR_SHAPE 의 "언어별 글꼴 번호 7개"가
+   * 무엇을 가리키는지 보이려면 실제로 갈라져 있어야 한다. */
+  var FONTS = ['함초롬바탕', '함초롬돋움', 'Times New Roman', '함초롬바탕'];
   var PARAS = [
     { text: '한글 문서 파일 형식 5.0', shape: 1, style: 1 },
     { text: 'HWP 파일을 바이너리로 열면 가장 먼저 만나는 것은 D0 CF 11 E0이다. ' +
@@ -145,39 +150,45 @@
       .done());
 
     /* ID 매핑 — 뒤에 나올 정의들이 각각 몇 개인지 미리 센다 */
+    /* 5.0.3.4 에서는 18칸(72바이트)이다. 버전에 따라 60 → 64 → 72로 늘어났다. */
     var counts = [
-      1,                    /* 바이너리 데이터 */
-      FONTS.length, 0, 0, 0, 0, 0,   /* 한글/영문/한자/일어/기타/기호 글꼴 */
-      0,                    /* 사용자 글꼴 */
-      1,                    /* 테두리/배경 */
-      2,                    /* 글자 모양 */
-      1,                    /* 탭 정의 */
-      0, 0,                 /* 번호 매기기 / 글머리표 */
-      2,                    /* 문단 모양 */
-      2                     /* 스타일 */
+      1,                    /* 0  바이너리 데이터 */
+      2, 1, 1, 0, 0, 0, 0,  /* 1~7  한글/영문/한자/일어/기타/기호/사용자 글꼴 */
+      1,                    /* 8  테두리/배경 */
+      2,                    /* 9  글자 모양 */
+      1,                    /* 10 탭 정의 */
+      0, 0,                 /* 11~12 번호 매기기 / 글머리표 */
+      2,                    /* 13 문단 모양 */
+      2,                    /* 14 스타일 */
+      0,                    /* 15 메모 모양 */
+      0, 0                  /* 16~17 변경 추적 / 변경 추적 작성자 */
     ];
     var idb = new Buf(counts.length * 4);
     counts.forEach(function (c) { idb.u32(c); });
     r.add('ID_MAPPINGS', 0, idb.done());
 
     /* 삽입된 그림이 BinData의 몇 번 항목인지 */
-    r.add('BIN_DATA', 0, new Buf(64).u16(0x0001).u16(1).wstr('png').done());
+    /* 속성 하위 4비트 = 종류(1=포함), 비트 4~5 = 압축 여부(0x20 = 무조건 압축 안 함).
+     * 이미 압축된 PNG를 또 압축해 봐야 손해라 실제 파일도 이렇게 표시한다. */
+    r.add('BIN_DATA', 1, new Buf(64).u16(0x0021).u16(1).wstr('png').done());
 
     /* 글꼴 정의 — 나오는 순서가 곧 번호다 */
     FONTS.forEach(function (f) {
       var b = new Buf(2 + 2 + f.length * 2 + 8);
       b.u8(0);            /* 속성 (대체 글꼴/글꼴 유형 정보 없음) */
       b.wstr(f);
-      r.add('FACE_NAME', 0, b.done());
+      r.add('FACE_NAME', 1, b.done());
     });
 
-    r.add('BORDER_FILL', 0, new Buf(40).u16(0).done());
+    r.add('BORDER_FILL', 1, new Buf(40).u16(0).done());
 
     /* 글자 모양 두 벌 — 본문용과 제목용 */
     [[1000, 0x000000], [1600, 0x1b3a6b]].forEach(function (cs) {
-      var b = new Buf(72);
-      for (var i = 0; i < 7; i++) b.u16(0);     /* 언어별 글꼴 번호 7개 */
-      for (i = 0; i < 7; i++) b.u8(100);        /* 장평 */
+      /* 5.0.3.0 이상은 74바이트 (그 전에는 70) */
+      var b = new Buf(74);
+      /* 언어별 글꼴 번호 7개 — 한글은 0번, 영문은 2번(Times), 한자는 3번 글꼴을 쓴다 */
+      [0, 2, 3, 0, 0, 0, 0].forEach(function (fid) { b.u16(fid); });
+      for (var i = 0; i < 7; i++) b.u8(100);    /* 장평 */
       for (i = 0; i < 7; i++) b.u8(0);          /* 자간 */
       for (i = 0; i < 7; i++) b.u8(100);        /* 상대 크기 */
       for (i = 0; i < 7; i++) b.u8(0);          /* 글자 위치 */
@@ -185,10 +196,13 @@
       b.u32(cs[1] === 0 ? 0 : 1);               /* 속성 (굵게 등) */
       b.u8(0).u8(0);                            /* 그림자 간격 */
       b.u32(cs[1]);                             /* 글자 색 */
-      r.add('CHAR_SHAPE', 0, b.done());
+      b.u32(0).u32(0).u32(0);                   /* 밑줄·그림자·취소선 색 */
+      b.u16(0);                                 /* 테두리/배경 번호 (5.0.2.1 이상) */
+      b.u32(0);                                 /* 취소선 색 (5.0.3.0 이상) */
+      r.add('CHAR_SHAPE', 1, b.done());
     });
 
-    r.add('TAB_DEF', 0, new Buf(8).u32(0).u32(0).done());
+    r.add('TAB_DEF', 1, new Buf(8).u32(0).u32(0).done());
 
     /* 문단 모양 두 벌 — 본문(양쪽)과 제목(가운데) */
     [0, 1].forEach(function (align) {
@@ -197,28 +211,35 @@
       b.u32(0).u32(0).u32(0);              /* 여백 */
       b.u32(160);                          /* 줄 간격 */
       b.u16(0).u16(0).u16(0).u16(0);       /* 탭/번호/테두리 참조 */
-      r.add('PARA_SHAPE', 0, b.done());
+      r.add('PARA_SHAPE', 1, b.done());
     });
 
     ['바탕글', '제목'].forEach(function (name, i) {
       var b = new Buf(2 + name.length * 2 + 2 + 8 + 16);
       b.wstr(name); b.wstr(''); b.u8(0).u8(0);
       b.u16(i).u16(i);                      /* 문단 모양 / 글자 모양 번호 */
-      r.add('STYLE', 0, b.done());
+      r.add('STYLE', 1, b.done());
     });
 
     r.add('COMPATIBLE_DOCUMENT', 0, new Buf(4).u32(0).done());
-    r.add('LAYOUT_COMPATIBILITY', 0, new Buf(20).u32(0).u32(0).u32(0).u32(0).u32(0).done());
+    r.add('LAYOUT_COMPATIBILITY', 1, new Buf(20).u32(0).u32(0).u32(0).u32(0).u32(0).done());
     return r.bytes();
   }
 
-  function buildSection() {
+  function buildSection(opts) {
+    opts = opts || {};
+    var edit = opts.edit || null;      /* { index, text } — 문단 하나를 고쳐 쓴다 */
+    var omit = opts.omit || null;      /* 'nChars' — 파생 값을 일부러 안 고친다 */
     var r = new Rec();
     /* 구역 첫 문단에 딸린 설정들 — 레벨 1로 매달린다 */
-    r.add('PARA_HEADER', 0, paraHeader(1, 0, 0, 0, 1));
-    r.add('PARA_TEXT', 1, paraTextBytes([{ ctrl: 2 }]).bytes);   /* 구역 정의 컨트롤 */
+    /* 구역 정의 컨트롤은 확장 컨트롤이라 여덟 글자 자리를 차지한다.
+     * PARA_HEADER 의 글자 수도 1이 아니라 8이어야 한다 — 바로 이 페이지가
+     * 07장에서 설명하는 함정이고, 작성기가 가장 쉽게 틀리는 곳이다. */
+    var secCtrl = paraTextBytes([{ ctrl: 2 }, { ctrl: 13 }]);
+    r.add('PARA_HEADER', 0, paraHeader(secCtrl.chars, 1 << 2, 0, 0, 1));
+    r.add('PARA_TEXT', 1, secCtrl.bytes);
     r.add('PARA_CHAR_SHAPE', 1, paraCharShape([[0, 0]]));
-    r.add('CTRL_HEADER', 1, new Buf(4).u32(ctrlId('dces')).done());
+    r.add('CTRL_HEADER', 1, new Buf(4).u32(ctrlId('secd')).done());
     r.add('PAGE_DEF', 2, new Buf(40)
       .u32(59528).u32(84188)                 /* 용지 가로/세로 (1/7200 인치) */
       .u32(8504).u32(8504).u32(5668).u32(4252).u32(4252).u32(0)
@@ -228,11 +249,19 @@
     r.add('PAGE_BORDER_FILL', 2, new Buf(14).u32(0).done());
     r.add('PAGE_BORDER_FILL', 2, new Buf(14).u32(0).done());
     r.add('PAGE_BORDER_FILL', 2, new Buf(14).u32(0).done());
-    r.add('PARA_LINE_SEG', 1, paraLineSeg(1));
+    r.add('PARA_LINE_SEG', 1, paraLineSeg(secCtrl.chars));
 
-    PARAS.forEach(function (para) {
+    PARAS.forEach(function (para, pIndex) {
       if (para.table) { addTable(r); return; }
       var items = [];
+      var origChars = null;
+      if (edit && edit.index === pIndex) {
+        /* 원래 글자 수를 기억해 둔다 — "안 고치고 쓰기"를 흉내 내기 위해 */
+        var before = paraTextBytes([para.tab ? { ctrl: 9 } : '', para.text || '', { ctrl: 13 }]
+          .filter(function (x) { return x !== ''; }));
+        origChars = before.chars;
+        para = Object.assign({}, para, { text: edit.text });
+      }
       if (para.tab) items.push({ ctrl: 9 });
       var body = para.long
         ? '레코드 크기 필드는 12비트뿐이라 4095바이트까지만 담을 수 있다. ' +
@@ -242,9 +271,13 @@
       /* 4095바이트(=2047글자)를 확실히 넘겨 확장 헤더가 나오게 만든다 */
       if (para.long) { var rep = body; while (body.length * 2 < 5200) body += rep; }
       items.push(body);
+      items.push({ ctrl: 13 });        /* 실제 파일의 모든 문단은 0x0D 로 끝난다 */
       var t = paraTextBytes(items);
-      r.add('PARA_HEADER', 0, paraHeader(t.chars, para.tab ? (1 << 9) : 0,
-                                          para.shape || 0, para.style || 0, 1));
+      /* 고쳐 쓰면서 글자 수만 예전 값으로 남겨 두면 어떻게 되는지 보여 주기 위한 갈래 */
+      var declared = (omit === 'nChars' && origChars !== null) ? origChars : t.chars;
+      var isLast = pIndex === PARAS.length - 1;
+      r.add('PARA_HEADER', 0, paraHeader(declared, para.tab ? (1 << 9) : 0,
+                                          para.shape || 0, para.style || 0, 1, isLast));
       r.add('PARA_TEXT', 1, t.bytes);
       r.add('PARA_CHAR_SHAPE', 1, paraCharShape([[0, para.style === 1 ? 1 : 0]]));
       r.add('PARA_LINE_SEG', 1, paraLineSeg(t.chars));
@@ -258,7 +291,7 @@
     var cells = [['구조', '무엇이 다른가'],
                  ['CFB', '이름 붙은 스트림, 포인터로 그린 트리'],
                  ['HWP 레코드', '번호 붙은 태그, 레벨로 세우는 트리']];
-    var marker = paraTextBytes([{ ctrl: 11 }]);   /* 표가 본문에 끼어드는 자리 */
+    var marker = paraTextBytes([{ ctrl: 11 }, { ctrl: 13 }]);   /* 표가 본문에 끼어드는 자리 */
     r.add('PARA_HEADER', 0, paraHeader(marker.chars, 1 << 11, 0, 0, 1));
     r.add('PARA_TEXT', 1, marker.bytes);
     r.add('PARA_CHAR_SHAPE', 1, paraCharShape([[0, 0]]));
@@ -272,18 +305,20 @@
       .done());
     cells.forEach(function (row, ri) {
       row.forEach(function (text, ci) {
-        r.add('LIST_HEADER', 2, new Buf(30)
-          .u16(1)                   /* 이 칸에 든 문단 수 */
+        r.add('LIST_HEADER', 2, new Buf(32)
+          .u32(1)                   /* 이 칸에 든 문단 수 — INT32 다 */
           .u32(0)                   /* 속성 */
           .u16(ci).u16(ri)          /* 열 / 행 주소 */
           .u16(1).u16(1)            /* 칸 병합 개수 */
           .u32(20000).u32(3000)     /* 칸 너비 / 높이 */
           .done());
-        var t = paraTextBytes([text]);
-        r.add('PARA_HEADER', 3, paraHeader(t.chars, 0, 0, 0, 1));
-        r.add('PARA_TEXT', 4, t.bytes);
-        r.add('PARA_CHAR_SHAPE', 4, paraCharShape([[0, 0]]));
-        r.add('PARA_LINE_SEG', 4, paraLineSeg(t.chars));
+        /* 칸 안의 문단은 LIST_HEADER 의 자식이 아니라 "형제"다 (둘 다 레벨 2).
+           어느 문단이 어느 칸에 속하는지는 레벨이 아니라 위 paraCount 가 정한다. */
+        var t = paraTextBytes([text, { ctrl: 13 }]);
+        r.add('PARA_HEADER', 2, paraHeader(t.chars, 0, 0, 0, 1, true));
+        r.add('PARA_TEXT', 3, t.bytes);
+        r.add('PARA_CHAR_SHAPE', 3, paraCharShape([[0, 0]]));
+        r.add('PARA_LINE_SEG', 3, paraLineSeg(t.chars));
       });
     });
     r.add('PARA_LINE_SEG', 1, paraLineSeg(marker.chars));
@@ -318,14 +353,28 @@
   function compose(opts) {
     opts = opts || {};
     var compressed = opts.compressed !== false;
+    /* 한글은 raw deflate 뒤에 8바이트를 덧붙인다: CRC-32(LE) + 원본 길이(LE).
+     * 명세에 없는 관례라 읽는 쪽은 대개 보지 않지만, 실제 파일에는 늘 있다. */
     var pack = function (bytes) {
-      return compressed ? root.Inflate.deflateRaw(bytes) : bytes;
+      if (!compressed) return bytes;
+      var z = root.Inflate.deflateRaw(bytes);
+      var out = new Uint8Array(z.length + 8);
+      out.set(z, 0);
+      var dv = new DataView(out.buffer);
+      dv.setUint32(z.length, root.Inflate.crc32(bytes), true);
+      dv.setUint32(z.length + 4, bytes.length, true);
+      return out;
     };
 
     var docInfo = buildDocInfo();
-    var section = buildSection();
-    var prvText = utf16le(PARAS.filter(function (p) { return p.text; })
-      .map(function (p) { return p.text; }).join('\n').slice(0, 500));
+    var section = buildSection(opts);
+    /* 미리보기 텍스트도 본문을 고칠 때 같이 고쳐야 하는 파생 값이다.
+     * opts.omit === 'prvText' 이면 일부러 옛 내용을 그대로 둔다. */
+    var previewSource = PARAS.map(function (p, i) {
+      if (opts.edit && opts.edit.index === i && opts.omit !== 'prvText') return opts.edit.text;
+      return p.text || '';
+    }).filter(Boolean).join('\n').slice(0, 500);
+    var prvText = utf16le(previewSource);
 
     var raw = { docInfo: docInfo, section: section };
     var spec = {
@@ -341,8 +390,8 @@
             note: '본문. 문단 레코드가 줄줄이 들어 있다.' }
         ], note: '구역마다 SectionN 스트림이 하나씩.' },
         { name: 'BinData', storage: true, children: [
-          { name: 'BIN0001.png', content: pack(TINY_PNG),
-            note: '삽입된 그림. DocInfo의 BIN_DATA 레코드가 이 이름을 가리킨다.' }
+          { name: 'BIN0001.png', content: TINY_PNG,
+            note: '삽입된 그림. BIN_DATA 레코드가 "압축 안 함"으로 표시했으므로 원본 그대로 들어간다.' }
         ] },
         { name: 'PrvText', content: prvText,
           note: '미리보기 텍스트. 평문 UTF-16LE — 압축도 암호화도 없다.' },
@@ -366,6 +415,7 @@
   }
 
   root.HWPBuild = {
+    PARAS: PARAS,
     compose: compose, buildDocInfo: buildDocInfo, buildSection: buildSection,
     fileHeader: fileHeader, paraTextBytes: paraTextBytes, ctrlId: ctrlId,
     Rec: Rec, Buf: Buf, utf16le: utf16le

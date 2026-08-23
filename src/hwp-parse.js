@@ -166,7 +166,7 @@
       hwpBytes: [[0x24, 4]]
     });
     if (encrypted) warn.push('암호가 걸린 문서다 — 내용을 풀 수 없다');
-    if (distributed) warn.push('배포용 문서다 — BodyText 대신 ViewText가 있고 추가 복호화가 필요하다');
+    if (distributed) warn.push('배포용 문서다 — 진짜 본문은 ViewText 쪽이고 암호화되어 있다 (BodyText 는 그대로 남아 있지만 안내문만 들어 있다)');
 
     /* --- 5. 스트림 훑기 --- */
     var streams = [];
@@ -184,10 +184,33 @@
           var r = root.Inflate.inflateAuto(raw);
           s.data = r.data;
           s.inflated = { from: raw.length, to: r.data.length, blocks: r.blocks, zlibHeader: r.zlibHeader };
+          /* 압축 데이터 뒤에 남은 바이트를 살펴본다. 한글은 여기에
+           * CRC-32(LE) + 원본 길이(LE) 8바이트를 붙여 둔다. 명세에는 없다. */
+          var tailLen = raw.length - r.consumed;
+          s.trailer = { bytes: tailLen, at: r.consumed };
+          if (tailLen >= 8) {
+            var tdv = new DataView(raw.buffer, raw.byteOffset + r.consumed, 8);
+            var crc = tdv.getUint32(0, true), isize = tdv.getUint32(4, true);
+            var want = root.Inflate.crc32(r.data);
+            s.trailer.crc = crc;
+            s.trailer.size = isize;
+            s.trailer.crcOk = crc === want;
+            s.trailer.crcZero = crc === 0;
+            s.trailer.sizeOk = isize === r.data.length;
+            s.trailer.expected = want;
+          }
         } catch (err) {
-          s.error = '압축을 풀 수 없다: ' + err.message;
-          s.data = new Uint8Array(0);
-          warn.push(e.displayPath + ': ' + s.error);
+          /* BinData 는 레코드가 "압축 안 함"으로 표시할 수 있다 (BIN_DATA 속성 비트 4~5).
+           * 그런 항목은 deflate 가 아니므로, 실패하면 평문으로 취급하는 편이 맞다. */
+          if (/^\/BinData\//.test(e.path)) {
+            s.compressed = false;
+            s.data = raw;
+            s.notDeflate = true;
+          } else {
+            s.error = '압축을 풀 수 없다: ' + err.message;
+            s.data = new Uint8Array(0);
+            warn.push(e.displayPath + ': ' + s.error);
+          }
         }
       }
       streams.push(s);
@@ -195,13 +218,20 @@
     var compCount = streams.filter(function (s) { return s.compressed && !s.error; }).length;
     var before = streams.reduce(function (a, s) { return a + (s.compressed ? s.size : 0); }, 0);
     var after = streams.reduce(function (a, s) { return a + (s.compressed ? s.data.length : 0); }, 0);
+    var withTrailer = streams.filter(function (x) { return x.trailer && x.trailer.bytes >= 8; });
+    var crcOk = withTrailer.filter(function (x) { return x.trailer.crcOk; }).length;
     step({
       id: 'inflate', title: '5. 압축 풀기',
       detail: compressed
         ? '스트림 ' + compCount + '개를 풀었다. ' + before + '바이트 → ' + after + '바이트 (' +
           (before ? (after / before).toFixed(1) : '0') + '배). ' +
           'zlib 헤더 없는 raw deflate라, 파이썬이라면 zlib.decompress(data, -15)로 푼다. ' +
-          'FileHeader와 미리보기 스트림은 압축 대상이 아니다 — 압축 여부를 FileHeader에서 읽어야 하니까.'
+          'FileHeader와 미리보기 스트림은 압축 대상이 아니다 — 압축 여부를 FileHeader에서 읽어야 하니까.' +
+          (withTrailer.length
+            ? ' 그리고 압축 데이터 뒤에 8바이트가 더 붙어 있다: CRC-32와 원본 길이. ' +
+              withTrailer.length + '개 중 ' + crcOk + '개의 CRC가 맞았다. ' +
+              '명세에 없는 관례라 읽는 쪽은 대개 이 8바이트를 그냥 버린다.'
+            : '')
         : '압축 비트가 꺼져 있어 스트림을 그대로 쓴다.'
     });
 
@@ -238,15 +268,40 @@
     /* --- 8. 글자 뽑기 --- */
     var sections = recordStreams.filter(function (s) { return /^\/(BodyText|ViewText)\//.test(s.path); });
     var paragraphs = [];
+    var mismatches = [];
     sections.forEach(function (s) {
+      var lastHeader = null;
       s.records.forEach(function (r) {
-        if (H.tagName(r.tag) !== 'PARA_TEXT') return;
+        var name = H.tagName(r.tag);
+        if (name === 'PARA_HEADER') {
+          /* 최상위 비트는 개수가 아니라 깃발이다 — 반드시 가리고 세야 한다 */
+          var rawN = new DataView(s.data.buffer, s.data.byteOffset + r.payloadOffset, 4).getUint32(0, true);
+          lastHeader = { rec: r, declared: rawN & 0x7fffffff, lastInList: !!(rawN & 0x80000000) };
+          r.declaredChars = lastHeader.declared;
+          r.lastInList = lastHeader.lastInList;
+          return;
+        }
+        if (name !== 'PARA_TEXT') return;
         var body = s.data.subarray(r.payloadOffset, r.payloadOffset + r.size);
         var t = readParaText(body);
         r.parsed = t;
-        paragraphs.push({ stream: s.path, record: r, text: t.text, pieces: t.pieces });
+        var actual = r.size / 2;
+        var declared = lastHeader ? lastHeader.declared : null;
+        if (declared !== null && declared !== actual) {
+          mismatches.push({ stream: s.path, header: lastHeader.rec, text: r,
+                            declared: declared, actual: actual });
+        }
+        paragraphs.push({ stream: s.path, record: r, text: t.text, pieces: t.pieces,
+                          declared: declared, actual: actual,
+                          lastInList: lastHeader ? lastHeader.lastInList : false });
+        lastHeader = null;
       });
     });
+    if (mismatches.length) {
+      warn.push('PARA_HEADER가 말하는 글자 수와 PARA_TEXT의 실제 크기가 어긋난 문단이 ' +
+                mismatches.length + '개 있다 (' +
+                mismatches.map(function (m) { return m.declared + '≠' + m.actual; }).join(', ') + ')');
+    }
     var text = paragraphs.map(function (p) { return p.text; }).join('\n');
     var ctrlCount = paragraphs.reduce(function (a, p) {
       return a + p.pieces.filter(function (x) { return x.kind === 'ctrl'; }).length;
@@ -267,7 +322,7 @@
       compressed: compressed, encrypted: encrypted, distributed: distributed,
       streams: streams, recordStreams: recordStreams,
       docInfo: docInfo, sections: sections,
-      paragraphs: paragraphs, text: text,
+      paragraphs: paragraphs, mismatches: mismatches, text: text,
       maxLevel: maxLevel,
       readParaText: readParaText
     };

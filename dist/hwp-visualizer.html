@@ -554,7 +554,8 @@ footer.site a { color: var(--ink-2); }
       <a href="#anatomy">06 레코드 해부</a>
       <a href="#text">07 글자 뽑기</a>
       <a href="#read">08 읽기</a>
-      <a href="#real">09 실전</a>
+      <a href="#write">09 쓰기</a>
+      <a href="#real">0A 실전</a>
       <a href="#appendix">부록</a>
     </nav>
     <button class="iconbtn" id="theme" type="button">◐</button>
@@ -806,18 +807,36 @@ footer.site a { color: var(--ink-2); }
     </p>
     <p>
       그래서 한글은 <b>스트림의 내용을 자기가 직접 압축해서</b> CFB에 넣는다.
-      쓰는 것은 <b>raw DEFLATE</b> — zlib 헤더(<code>78 9C</code> 같은 2바이트)도,
-      끝의 Adler-32 검사값도 없다. 파이썬으로 풀 때
-      <code>zlib.decompress(data, -15)</code>라고 쓰는 이유가 이것이다.
+      쓰는 것은 <b>raw DEFLATE</b> — zlib 헤더(<code>78 9C</code> 같은 2바이트)가 없다.
+      파이썬으로 풀 때 <code>zlib.decompress(data, -15)</code>라고 쓰는 이유가 이것이다.
       음수 15는 "zlib 껍데기 없이, 창 크기 2<sup>15</sup>로"라는 뜻이다.
     </p>
 
-    <div class="insight trap">
-      <div class="insight-label">함정</div>
+    <div class="insight">
+      <div class="insight-label">아무도 안 보는 검사값</div>
+      <p>
+        여기서 널리 퍼진 오해가 하나 있다. "raw deflate라 검사값이 없다"는 것인데,
+        <b>사실 검사값은 있다.</b> 한글은 압축 데이터 뒤에 <b>8바이트</b>를 덧붙인다 —
+        <b>CRC-32</b>(리틀엔디언)와 <b>원본 길이</b>(리틀엔디언). gzip 꼬리에서 머리만 뗀 모양이다.
+      </p>
+      <p>
+        그런데 아무도 보지 않는다. <code>inflate</code>는 마지막 DEFLATE 블록에서 멈추고
+        남은 바이트를 그냥 버리기 때문에, 이 8바이트는 파서의 시야에 들어오지도 않는다.
+        그래서 대부분의 설명이 "없다"고 쓴다. 실제로 어떤 구현(hwplib)은 CRC 자리에
+        <b>0을 네 개 써 넣는데도</b> 한글이 그 파일을 아무 문제 없이 연다.
+      </p>
       <p style="margin-bottom:0">
-        검사값이 없다는 것은 <b>압축을 잘못 풀어도 아무도 알려 주지 않는다</b>는 뜻이다.
-        스트림을 잘못 고르거나 오프셋이 하나 어긋나면, 예외 대신 그럴듯한 쓰레기가 나온다.
-        레코드 파서가 "태그 837, 크기 1048576" 같은 값을 뱉기 시작하면 대개 이 문제다.
+        명세에는 이 꼬리에 대한 말이 한 줄도 없다. <b>쓰는 쪽의 관례일 뿐인데 거의 모든 파일에 있고,
+        읽는 쪽은 아무도 확인하지 않는다.</b> 아래 패널에서 실제 8바이트를 확인해 볼 수 있다.
+      </p>
+    </div>
+
+    <div class="insight trap">
+      <div class="insight-label">그래서 생기는 함정</div>
+      <p style="margin-bottom:0">
+        확인하지 않는 검사값은 없는 것과 같다. 스트림을 잘못 고르거나 오프셋이 하나 어긋나면
+        <b>예외 대신 그럴듯한 쓰레기가 나온다.</b> 레코드 파서가 "태그 837, 크기 1048576" 같은
+        값을 뱉기 시작하면 대개 이 문제다. 붙어 있는 CRC를 한 번만 검사해도 즉시 잡힐 일이다.
       </p>
     </div>
   </div>
@@ -854,6 +873,20 @@ footer.site a { color: var(--ink-2); }
       아래에서 실제 파일의 레코드 머리를 비트 단위로 뜯어 볼 수 있고,
       슬라이더로 직접 값을 만들어 볼 수도 있다.
     </p>
+  </div>
+
+    <div class="insight">
+      <div class="insight-label">태그 번호 10비트를 어떻게 나눠 썼나</div>
+      <p>명세는 0–1023을 세 구역으로 갈라 두었다:</p>
+      <div class="readout" style="margin:.6rem 0">0x000 – 0x00F   일반 레코드 태그가 아닌 특별한 용도
+0x010 – 0x1FF   한글이 내부용으로 예약  ← HWPTAG_BEGIN = 0x010
+0x200 – 0x3FF   외부 응용 프로그램이 쓸 수 있는 영역</div>
+      <p style="margin-bottom:0">
+        <b><code>HWPTAG_BEGIN</code>이 0x010인 이유가 이것이다</b> — 앞의 열여섯 자리를 따로 비워 둔 것.
+        그리고 실제로 쓰이는 태그는 DocInfo가 0x010–0x020, 본문이 0x042–0x062 언저리에 몰려 있어서,
+        <b>10비트 공간의 90%가 비어 있다.</b> 0x200 위쪽은 남에게 내준 자리인데 쓰는 사람이 거의 없다.
+      </p>
+    </div>
   </div>
 
   <div class="panel">
@@ -945,6 +978,22 @@ footer.site a { color: var(--ink-2); }
 
   <div class="prose">
     <div class="insight trap">
+      <div class="insight-label">레벨 트리가 말해 주지 않는 것</div>
+      <p>
+        위 그림에서 표 부분을 보면 이상한 점이 있다. <code>LIST_HEADER</code>(표의 한 칸)와
+        그 칸에 든 <code>PARA_HEADER</code>가 <b>같은 레벨의 형제로 나란히 놓여 있다.</b>
+        직관적으로는 문단이 칸 "안에" 들어가야 할 것 같은데 그렇지 않다.
+      </p>
+      <p style="margin-bottom:0">
+        어느 문단이 어느 칸에 속하는지는 <b>레벨이 아니라 개수로 정해진다.</b>
+        <code>LIST_HEADER</code>의 첫 필드가 "이 칸에 문단 몇 개"이고,
+        바로 뒤의 같은 레벨 <code>PARA_HEADER</code>를 그만큼 세어 가면 그게 이 칸의 내용이다.
+        <b>레벨 트리는 구조의 전부가 아니다</b> — 어떤 소속 관계는 레코드 안의 숫자가 따로 말한다.
+        위 레코드 해부에서 <code>LIST_HEADER</code>를 눌러 "문단 개수"를 확인해 보자.
+      </p>
+    </div>
+
+    <div class="insight trap">
       <div class="insight-label">대가</div>
       <p style="margin-bottom:0">
         레벨 방식은 저장 공간을 거의 쓰지 않는다 — 포인터 세 개(12바이트) 대신 10비트다.
@@ -991,6 +1040,48 @@ footer.site a { color: var(--ink-2); }
   </div>
 
   <div class="prose">
+    <h3>번호 체계의 함정 세 가지</h3>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>무엇</th><th>기준</th><th>왜 중요한가</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">CharShape · ParaShape<br>TabDef · Style · FaceName</td>
+            <td><b>0부터</b></td><td>첫 번째로 나온 것이 0번.</td></tr>
+          <tr><td class="mono">BorderFill · BinData<br>Bullet · Numbering</td>
+            <td><b>1부터</b></td><td><b>0은 "없음"</b>을 뜻한다. 0을 인덱스로 쓰면 엉뚱한 것을 가리킨다.</td></tr>
+          <tr><td class="mono">글자 모양 번호</td><td>UINT32</td><td rowspan="3">
+            참조 폭이 제각각이다. 특히 <b>스타일 번호는 1바이트</b>라, 한 문서에
+            스타일이 256개를 넘을 수 없다.</td></tr>
+          <tr><td class="mono">문단 모양 번호</td><td>UINT16</td></tr>
+          <tr><td class="mono">스타일 번호</td><td><b>UINT8</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>레코드 길이가 버전마다 다르다</h3>
+    <p>
+      같은 태그인데 크기가 다르다. <code>PARA_HEADER</code>는 5.0.3.2에서 22 → 24바이트가 되었고,
+      <code>CHAR_SHAPE</code>는 5.0.3.0에서 70 → 74, <code>ID_MAPPINGS</code>는 60 → 64 → 72로 늘었다.
+    </p>
+    <div class="insight trap">
+      <div class="insight-label">실무 규칙</div>
+      <p style="margin-bottom:0">
+        그렇다고 <b>버전 번호를 보고 분기하면 안 된다.</b> 버전이 5.0.3.3인데 그 버전이 요구하는
+        필드가 없는 파일이 실제로 존재한다. 올바른 방법은 <b>레코드에 아직 몇 바이트가 남았는지를 보고</b>
+        읽을지 말지 정하는 것이다. 크기 필드가 이미 진실을 말해 주고 있으니 그것을 믿으면 된다.
+      </p>
+    </div>
+
+    <div class="insight trap">
+      <div class="insight-label">명세도 자기모순을 일으킨다</div>
+      <p style="margin-bottom:0">
+        <code>DOCUMENT_PROPERTIES</code>의 크기가 명세 안에서 두 번 나오는데 서로 다르다 —
+        요약 표에는 <b>30</b>, 필드 표에는 항목을 더한 <b>26</b>이라고 적혀 있다.
+        실제 파일은 26이다. 앞 편에서 본 CFB 명세의 "6.875 MB"와 같은 종류의 오류다.
+        <b>명세와 실제 파일이 어긋나면 실제 파일이 이긴다.</b>
+      </p>
+    </div>
+
     <h3>컨트롤 — 본문에 끼어드는 것들</h3>
     <p>
       표·그림·각주 같은 것은 문단 <em>안</em>에 들어간다. 방법은 이렇다:
@@ -998,9 +1089,12 @@ footer.site a { color: var(--ink-2); }
     <ol>
       <li>문단 글자 사이에 <b>제어 문자</b>를 하나 박아 자리를 표시한다 (표라면 11번).</li>
       <li>그 문단 아래 레벨에 <code>CTRL_HEADER</code> 레코드를 둔다.</li>
-      <li><code>CTRL_HEADER</code>의 첫 4바이트가 <b>네 글자짜리 ID</b>다 — 표는 <code>tbl&nbsp;</code>,
-        구역 정의는 <code>dces</code>, 그리기 개체는 <code>gso&nbsp;</code>.
-        <b>이 네 글자는 뒤집혀 저장</b>되어서 hex 뷰에는 <code>" lbt"</code>처럼 보인다.</li>
+      <li><code>CTRL_HEADER</code>의 첫 4바이트가 <b>네 글자짜리 ID</b>다.
+        <b>논리적 이름과 디스크에 적힌 순서가 반대</b>이니 둘을 섞어 쓰면 안 된다:
+        표 <code>tbl&nbsp;</code>→<code>&nbsp;lbt</code>,
+        구역 정의 <code>secd</code>→<code>dces</code>,
+        그리기 개체 <code>gso&nbsp;</code>→<code>&nbsp;osg</code>.
+        hex 뷰에 보이는 것은 오른쪽 형태다.</li>
       <li>그 아래로 <code>TABLE</code>, 그리고 칸마다 <code>LIST_HEADER</code>,
         칸 안의 문단이 또 <code>PARA_HEADER</code>로 이어진다. 레벨이 이렇게 깊어진다.</li>
     </ol>
@@ -1032,6 +1126,20 @@ footer.site a { color: var(--ink-2); }
       즉 <code>11</code>번(표)을 만나면 그 자리부터 <b>16바이트를 통째로 건너뛰어야</b> 한다.
       2바이트만 건너뛰면 그 뒤 글자가 전부 반 칸씩 밀려 깨진다.
     </p>
+
+    <div class="insight trap">
+      <div class="insight-label">검산하려다 터지는 곳</div>
+      <p>
+        <code>PARA_HEADER</code>의 첫 4바이트가 "글자 수"이고,
+        <code>글자 수 × 2 = PARA_TEXT의 바이트 수</code>여야 한다. 좋은 검산식이다.
+        그런데 그대로 쓰면 어떤 문단에서 <b>글자 수가 40억쯤으로 나온다.</b>
+      </p>
+      <p style="margin-bottom:0">
+        <b>최상위 비트(31번)가 개수가 아니라 깃발</b>이기 때문이다
+        (목록의 마지막 문단인지를 표시한다). <code>&amp; 0x7FFFFFFF</code>로 가리고 나서 세야 한다.
+        위 레코드 해부에서 <code>PARA_HEADER</code>를 눌러 보면 이 비트가 켜진 문단을 찾을 수 있다.
+      </p>
+    </div>
   </div>
 
   <figure>
@@ -1095,22 +1203,93 @@ footer.site a { color: var(--ink-2); }
 
   <div class="prose">
     <div class="insight">
-      <div class="insight-label">쓸 때는 반대로</div>
+      <div class="insight-label">쓸 때는 반대로 — 다만 그대로 뒤집으면 안 된다</div>
       <p style="margin-bottom:0">
-        레코드를 이어 붙여 스트림을 만들고 → raw deflate로 압축하고 → CFB 스트림으로 넣는다.
-        <b>이 페이지의 샘플 파일도 정확히 그 순서로 만들어졌다.</b>
-        압축은 브라우저 안에서 직접 구현한 DEFLATE로 하고, 그 결과를 표준 zlib으로 풀 수 있는지까지 검증했다.
+        레코드를 이어 붙이고 → 압축하고 → CRC 꼬리를 붙이고 → CFB 스트림에 넣는다.
+        <b>이 페이지의 샘플 파일도 정확히 그 순서로 만들어졌다</b> (압축은 브라우저 안에서
+        직접 구현한 DEFLATE로 하고, 그 결과를 표준 zlib이 풀 수 있는지까지 검증했다).
+        하지만 쓰기에는 읽기에 없는 규칙이 따로 있다 — <a href="#write">09장</a>에서 이어진다.
       </p>
     </div>
   </div>
  </div>
 </section>
 
-<!-- ================= 0x09 실전 ================= -->
-<section class="chapter" id="real">
+<!-- ================= 0x09 쓰기 ================= -->
+<section class="chapter" id="write">
  <div class="wrap">
   <div class="chapter-head">
     <span class="chapter-num">0x09</span>
+    <h2>쓰기 — 읽기의 거울이 아니다</h2>
+    <p class="chapter-sub">쓰는 쪽에만 있는 규칙이 있고, 아무도 검사해 주지 않는 값들이 있다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      쓰는 순서는 읽기를 뒤집은 것이다: <b>레코드를 이어 붙이고 → raw deflate로 압축하고 →
+      CRC와 길이 8바이트를 붙이고 → CFB 스트림에 넣는다.</b>
+      이 페이지의 샘플 파일도 정확히 그 순서로 만들어졌다.
+    </p>
+    <p>
+      그런데 쓰기는 읽기의 거울이 아니다. <b>쓰는 쪽에만 있는 규칙</b>이 있다.
+    </p>
+
+    <h3>4095라는 한 칸</h3>
+    <p>
+      읽는 쪽은 크기 자리가 <b><code>== 0xFFF</code></b>인지 본다.
+      그러면 쓰는 쪽은 <b><code>&gt; 4095</code></b>일 때 확장 헤더를 쓰면 될 것 같다. 아니다.
+      <b><code>&gt;= 4095</code></b>여야 한다. 4095는 이미 "신호"로 써 버린 값이라
+      <b>크기로는 쓸 수 없기 때문</b>이다.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">부등호 하나 차이</span></div>
+    <div class="panel-body" id="hwp-edge-panel"></div>
+    <div class="panel-foot">슬라이더를 4095에 정확히 맞춰 보자. 실제 구현에 있었던 버그다.</div>
+  </div>
+
+  <div class="prose">
+    <h3>아무도 검사해 주지 않는 값들</h3>
+    <p>
+      본문의 글자 하나를 고치면, 파일 안에서 <b>여섯 군데</b>가 같이 바뀌어야 한다.
+      그중 어느 것도 자동으로 계산되지 않고, 어느 것도 읽는 쪽에서 검사하지 않는다.
+      하나를 빠뜨리면 파일은 여전히 "열리는데" 내용이 어긋난다.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="panel-title">쓰기 실습실</span>
+      <span class="chip">고칠 때마다 파일을 실제로 다시 만든다</span>
+    </div>
+    <div class="panel-body" id="hwp-write-lab"></div>
+    <div class="panel-foot">빨간 버튼 두 개는 일부러 파생 값을 빠뜨린다. 파일이 어떻게 조용히 어긋나는지 볼 수 있다.</div>
+  </div>
+
+  <div class="prose">
+    <h3>번호를 다시 매기는 일</h3>
+    <p>
+      06장에서 본 대로 DocInfo의 정의들은 <b>등장 순서가 곧 번호</b>다.
+      그래서 글꼴 하나를 지우면 그 뒤의 모든 글꼴 번호가 한 칸씩 당겨지고,
+      본문의 <code>CHAR_SHAPE</code>들이 가리키던 번호가 전부 어긋난다.
+    </p>
+    <p style="margin-bottom:0">
+      글꼴을 <b>추가</b>할 때도 마찬가지다. 그냥 뒤에 붙이면 안 되고,
+      언어 칸(한글·영문·한자…)의 <b>올바른 위치에 끼워 넣은 다음</b>
+      <code>ID_MAPPINGS</code>의 해당 칸을 1 올려야 한다.
+      CFB에서 스트림 하나를 지워도 다른 스트림의 이름이 안 바뀌던 것과 정반대다 —
+      <b>이름이 있으면 지워도 되고, 번호뿐이면 지우면 뒤가 밀린다.</b>
+    </p>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x0A 실전 ================= -->
+<section class="chapter" id="real">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x0A</span>
     <h2>실전 — 내 .hwp 열어 보기</h2>
     <p class="chapter-sub">그리고 이 구조가 보안에서 왜 문제가 되는가.</p>
   </div>
@@ -1123,16 +1302,61 @@ footer.site a { color: var(--ink-2); }
   </div>
 
   <div class="prose">
-    <h3>배포용 문서</h3>
+    <h3>네 가지 보안 장치는 서로 다른 것이다</h3>
     <p>
-      "배포용 문서"로 저장하면 속성 2번 비트가 켜지고, <code>BodyText</code> 대신
-      <code>ViewText</code>가 들어간다. <code>ViewText/SectionN</code>은 암호화되어 있고,
-      그 앞에 <code>DISTRIBUTE_DOC_DATA</code> 레코드가 <b>평문으로</b> 붙는다.
+      속성 비트를 보면 보안 관련 항목이 여럿인데, 흔히 뭉뚱그려 말한다. 서로 무관한 장치들이다.
     </p>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th class="mono">비트</th><th>이름</th><th>공개된 분석</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1</td><td>암호 설정</td>
+            <td>공개 구현이 없다. 역공학 자료가 돌지만 출처가 약해 신뢰도가 낮다.</td></tr>
+          <tr><td class="mono">2</td><td><b>배포용 문서</b></td>
+            <td><b>완전히 공개되어 있다.</b> 아래 참조.</td></tr>
+          <tr><td class="mono">4</td><td>DRM 보안 문서</td>
+            <td>외부 DRM 제품에 달린 것으로, 형식 자체의 일부가 아니다.</td></tr>
+          <tr><td class="mono">10</td><td>공인 인증서 DRM</td>
+            <td>인증서 기반. 역시 별개 시스템.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>배포용 문서 — 자물쇠와 열쇠를 같은 상자에</h3>
     <p>
-      복호화에 필요한 것이 <b>그 평문 레코드 안에 들어 있다.</b>
-      즉 이것은 암호라기보다 <b>자물쇠와 열쇠를 같은 상자에 넣어 둔 것</b>에 가깝다.
-      편집을 막는 장치이지 내용을 지키는 장치가 아니다.
+      "배포용 문서"로 저장하면 속성 2번 비트가 켜지고 <code>ViewText</code> 스토리지가 <b>추가된다.</b>
+    </p>
+    <div class="insight trap">
+      <div class="insight-label">널리 퍼진 오해</div>
+      <p style="margin-bottom:0">
+        <b><code>BodyText</code>가 <code>ViewText</code>로 "바뀌는" 것이 아니다.</b>
+        둘 다 같은 파일 안에 함께 있다. <code>ViewText/SectionN</code>이 진짜 본문(암호화됨)이고,
+        <code>BodyText</code>에는 한글이 넣어 둔 안내문 한 문단이 들어간다 —
+        옛 프로그램이 열었을 때 깨진 글자 대신 안내를 보여 주려는 배려다.
+      </p>
+      <p style="margin-bottom:0;margin-top:.6rem">
+        그런데 이 배려가 구멍이 된 적이 있다. 어떤 변환 도구는 배포용 문서를 만들 때
+        <b>원본 평문 본문을 <code>BodyText</code>에 그대로 복사해 두었다.</b>
+        암호화된 <code>ViewText</code> 옆에 평문 원본이 나란히 있었던 셈이다.
+        나중 판본에서 고쳐졌지만, <b>"두 곳이 공존한다"는 사실을 몰랐다면 생기지 않았을 실수</b>이기도 하다.
+      </p>
+    </div>
+    <p>
+      암호화 자체는 이렇게 돌아간다. <code>ViewText/SectionN</code>의 맨 앞에
+      <b>256바이트짜리 <code>DISTRIBUTE_DOC_DATA</code> 레코드가 평문으로</b> 놓이고,
+      그 뒤부터가 AES-128로 암호화된 진짜 본문이다.
+      그리고 <b>복호화에 필요한 것이 그 평문 레코드 안에 들어 있다.</b>
+    </p>
+    <p style="margin-bottom:0">
+      레코드의 첫 4바이트에서 씨앗값을 얻고 → 그 씨앗으로 간단한 난수열을 돌려 나머지를 XOR로 풀고 →
+      풀린 자리에서 키를 읽어 낸다. 즉 <b>자물쇠와 열쇠가 같은 상자에 들어 있다.</b>
+      실효 엔트로피는 씨앗값 32비트뿐이지만, 애초에 키가 파일 안에 있으므로 그마저도 의미가 없다.
+      <b>이것은 내용을 지키는 장치가 아니라 편집을 막는 장치다.</b>
+    </p>
+    <p class="note">
+      이 페이지는 배포용 문서를 직접 복호화해 보여 주지는 않는다 —
+      검증할 실제 표본 없이 구현하면 틀린 것을 가르칠 위험이 있어서다.
+      구조와 원리만 설명한다.
     </p>
 
     <h3>왜 HWP가 표적이 되는가</h3>
@@ -1167,7 +1391,7 @@ footer.site a { color: var(--ink-2); }
 <section class="chapter" id="appendix">
  <div class="wrap">
   <div class="chapter-head">
-    <span class="chapter-num">0x0A</span>
+    <span class="chapter-num">0x0B</span>
     <h2>부록</h2>
   </div>
 
@@ -1187,6 +1411,10 @@ footer.site a { color: var(--ink-2); }
         <dt>BinData 이름</dt><dd>BIN + 대문자 16진수 4자리 + 확장자</dd>
         <dt>구역 개수</dt><dd>DOCUMENT_PROPERTIES의 첫 UINT16</dd>
         <dt>본문 인코딩</dt><dd>UTF-16LE</dd>
+        <dt>압축 꼬리</dt><dd>CRC-32(LE) + 원본 길이(LE) 8바이트 — 명세 밖</dd>
+        <dt>태그 공간</dt><dd>0x000–00F 특수 · 0x010–1FF 한글 · 0x200–3FF 외부</dd>
+        <dt>보통 헤더 한계</dt><dd>내용 0 – 4094 바이트</dd>
+        <dt>글자 수 필드</dt><dd>상위 1비트는 깃발, 하위 31비트가 개수</dd>
       </dl>
     </div>
     <div>
@@ -1204,6 +1432,15 @@ footer.site a { color: var(--ink-2); }
         <li>PrvText를 본문으로 사용 — 잘려 있고 오래됐을 수 있다.</li>
         <li>배포용 문서에서 BodyText를 찾음 — <b>ViewText</b>에 있다.</li>
         <li>레코드 크기를 검증하지 않음 — 조작된 값이 스트림 밖을 가리킬 수 있다.</li>
+        <li>PARA_HEADER의 글자 수를 그대로 씀 — <b>최상위 비트는 깃발</b>이다. <code>&amp; 0x7FFFFFFF</code>.</li>
+        <li>쓸 때 <code>&gt; 4095</code>로 비교 — <b><code>&gt;= 4095</code></b>여야 한다. 4095는 신호로 써 버렸다.</li>
+        <li>표 칸의 문단이 LIST_HEADER의 자식일 거라 가정 — <b>형제</b>이고, 소속은 개수로 센다.</li>
+        <li>CTRL_HEADER 네 글자를 논리 이름과 디스크 순서로 섞어 씀 — <code>tbl&nbsp;</code>↔<code>&nbsp;lbt</code>.</li>
+        <li>BorderFill·BinData 번호를 0부터로 셈 — <b>1부터</b>이고 0은 "없음"이다.</li>
+        <li>버전 번호로 필드 유무를 분기 — <b>레코드에 남은 바이트</b>로 판단해야 한다.</li>
+        <li>압축 꼬리 8바이트를 레코드로 착각 — CRC-32와 원본 길이다.</li>
+        <li>BinData를 무조건 압축 해제 — BIN_DATA 속성의 비트 4~5가 "압축 안 함"일 수 있다.</li>
+        <li>배포용 문서에서 BodyText가 사라졌다고 가정 — <b>ViewText와 함께 남아 있다</b>.</li>
       </ol>
     </div>
   </div>
@@ -3448,8 +3685,26 @@ footer.site a { color: var(--ink-2); }
     return bw.finish();
   }
 
+  /* ---------- CRC-32 (RFC 1952) ------------------------------------------
+   * 한글은 압축 데이터 뒤에 8바이트를 덧붙인다: CRC-32 + 원본 길이.
+   * gzip 꼬리에서 머리만 뗀 모양이다. 명세에는 없고, 읽는 쪽도 보지 않는다. */
+  var CRC_TABLE = (function () {
+    var t = new Uint32Array(256);
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    var c = 0xffffffff;
+    for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
   root.Inflate = {
-    inflateRaw: inflateRaw, inflateAuto: inflateAuto, deflateRaw: deflateRaw
+    inflateRaw: inflateRaw, inflateAuto: inflateAuto, deflateRaw: deflateRaw, crc32: crc32
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -3494,12 +3749,12 @@ footer.site a { color: var(--ink-2); }
     { bit: 9,  name: '전자 서명 예비 저장', desc: '' },
     { bit: 10, name: '공인 인증서 DRM 보안', desc: '' },
     { bit: 11, name: 'CCL 문서', desc: '크리에이티브 커먼즈 라이선스 표시.' },
-    { bit: 12, name: '모바일 최적화', desc: '명세 개정 1.3(2018)에서 추가된 비트.' },
-    { bit: 13, name: '개인 정보 보안 문서', desc: '개정 1.3에서 추가.' },
-    { bit: 14, name: '변경 추적 문서', desc: '개정 1.3에서 추가.' },
-    { bit: 15, name: '공공누리(KOGL) 저작권 문서', desc: '개정 1.3에서 추가.' },
-    { bit: 16, name: '비디오 컨트롤 포함', desc: '개정 1.3에서 추가.' },
-    { bit: 17, name: '차례 필드 컨트롤 포함', desc: '개정 1.3에서 추가. 18번부터 31번까지는 예약.' }
+    { bit: 12, name: '모바일 최적화', desc: '명세 개정 1.3(2018) 문서에 실려 있는 비트. 그 이전 개정에도 있었는지는 확인하지 못했다.' },
+    { bit: 13, name: '개인 정보 보안 문서', desc: '개정 1.3 문서에 실려 있다.' },
+    { bit: 14, name: '변경 추적 문서', desc: '개정 1.3 문서에 실려 있다.' },
+    { bit: 15, name: '공공누리(KOGL) 저작권 문서', desc: '개정 1.3 문서에 실려 있다.' },
+    { bit: 16, name: '비디오 컨트롤 포함', desc: '개정 1.3 문서에 실려 있다.' },
+    { bit: 17, name: '차례 필드 컨트롤 포함', desc: '개정 1.3 문서에 실려 있다. 18번부터 31번까지는 예약.' }
   ];
 
   H.FILEHEADER_FIELDS = [
@@ -3752,7 +4007,8 @@ footer.site a { color: var(--ink-2); }
     for (var i = 0; i < s.length; i++) dv.setUint16(i * 2, s.charCodeAt(i), true);
     return b;
   }
-  /* 컨트롤 ID: 네 글자를 뒤집어 uint32 로 넣는다. hex 뷰에서 " lbt" 처럼 보인다. */
+  /* 컨트롤 ID. 논리적 이름은 'tbl ', 'secd' 처럼 읽지만, 디스크에는 뒤집혀 놓인다
+   * (' lbt', 'dces'). uint32 로 조립해 리틀엔디언으로 쓰면 자연히 그렇게 된다. */
   function ctrlId(s) {
     return ((s.charCodeAt(0) << 24) | (s.charCodeAt(1) << 16) |
             (s.charCodeAt(2) << 8) | s.charCodeAt(3)) >>> 0;
@@ -3783,9 +4039,11 @@ footer.site a { color: var(--ink-2); }
 
   /* PARA_HEADER — 명세의 필드 순서 그대로.
    * 5.0.3.2 미만은 22바이트, 그 이상은 변경 추적 필드가 붙어 24바이트다. */
-  function paraHeader(nChars, ctrlMask, paraShapeId, styleId, charShapeCount) {
+  function paraHeader(nChars, ctrlMask, paraShapeId, styleId, charShapeCount, lastInList) {
     return new Buf(24)
-      .u32(nChars)            /* 글자 수 */
+      /* 최상위 비트는 개수가 아니라 깃발이다 — 이 목록의 마지막 문단인지를 표시한다.
+       * 읽는 쪽은 반드시 0x7FFFFFFF 로 가리고 세야 한다. */
+      .u32((nChars & 0x7fffffff) | (lastInList ? 0x80000000 : 0))
       .u32(ctrlMask)          /* 제어 문자 마스크 */
       .u16(paraShapeId)       /* 문단 모양 번호 */
       .u8(styleId)            /* 스타일 번호 */
@@ -3816,7 +4074,9 @@ footer.site a { color: var(--ink-2); }
    *   · 본문에 섞인 제어 문자 (탭, 표, 문단 끝)
    *   · 압축이 실제로 효과를 내는 반복 텍스트
    * ---------------------------------------------------------------------- */
-  var FONTS = ['함초롬바탕', '함초롬돋움', 'HY헤드라인M', 'Times New Roman'];
+  /* 언어 칸별로 나눠 담는다 — CHAR_SHAPE 의 "언어별 글꼴 번호 7개"가
+   * 무엇을 가리키는지 보이려면 실제로 갈라져 있어야 한다. */
+  var FONTS = ['함초롬바탕', '함초롬돋움', 'Times New Roman', '함초롬바탕'];
   var PARAS = [
     { text: '한글 문서 파일 형식 5.0', shape: 1, style: 1 },
     { text: 'HWP 파일을 바이너리로 열면 가장 먼저 만나는 것은 D0 CF 11 E0이다. ' +
@@ -3840,39 +4100,45 @@ footer.site a { color: var(--ink-2); }
       .done());
 
     /* ID 매핑 — 뒤에 나올 정의들이 각각 몇 개인지 미리 센다 */
+    /* 5.0.3.4 에서는 18칸(72바이트)이다. 버전에 따라 60 → 64 → 72로 늘어났다. */
     var counts = [
-      1,                    /* 바이너리 데이터 */
-      FONTS.length, 0, 0, 0, 0, 0,   /* 한글/영문/한자/일어/기타/기호 글꼴 */
-      0,                    /* 사용자 글꼴 */
-      1,                    /* 테두리/배경 */
-      2,                    /* 글자 모양 */
-      1,                    /* 탭 정의 */
-      0, 0,                 /* 번호 매기기 / 글머리표 */
-      2,                    /* 문단 모양 */
-      2                     /* 스타일 */
+      1,                    /* 0  바이너리 데이터 */
+      2, 1, 1, 0, 0, 0, 0,  /* 1~7  한글/영문/한자/일어/기타/기호/사용자 글꼴 */
+      1,                    /* 8  테두리/배경 */
+      2,                    /* 9  글자 모양 */
+      1,                    /* 10 탭 정의 */
+      0, 0,                 /* 11~12 번호 매기기 / 글머리표 */
+      2,                    /* 13 문단 모양 */
+      2,                    /* 14 스타일 */
+      0,                    /* 15 메모 모양 */
+      0, 0                  /* 16~17 변경 추적 / 변경 추적 작성자 */
     ];
     var idb = new Buf(counts.length * 4);
     counts.forEach(function (c) { idb.u32(c); });
     r.add('ID_MAPPINGS', 0, idb.done());
 
     /* 삽입된 그림이 BinData의 몇 번 항목인지 */
-    r.add('BIN_DATA', 0, new Buf(64).u16(0x0001).u16(1).wstr('png').done());
+    /* 속성 하위 4비트 = 종류(1=포함), 비트 4~5 = 압축 여부(0x20 = 무조건 압축 안 함).
+     * 이미 압축된 PNG를 또 압축해 봐야 손해라 실제 파일도 이렇게 표시한다. */
+    r.add('BIN_DATA', 1, new Buf(64).u16(0x0021).u16(1).wstr('png').done());
 
     /* 글꼴 정의 — 나오는 순서가 곧 번호다 */
     FONTS.forEach(function (f) {
       var b = new Buf(2 + 2 + f.length * 2 + 8);
       b.u8(0);            /* 속성 (대체 글꼴/글꼴 유형 정보 없음) */
       b.wstr(f);
-      r.add('FACE_NAME', 0, b.done());
+      r.add('FACE_NAME', 1, b.done());
     });
 
-    r.add('BORDER_FILL', 0, new Buf(40).u16(0).done());
+    r.add('BORDER_FILL', 1, new Buf(40).u16(0).done());
 
     /* 글자 모양 두 벌 — 본문용과 제목용 */
     [[1000, 0x000000], [1600, 0x1b3a6b]].forEach(function (cs) {
-      var b = new Buf(72);
-      for (var i = 0; i < 7; i++) b.u16(0);     /* 언어별 글꼴 번호 7개 */
-      for (i = 0; i < 7; i++) b.u8(100);        /* 장평 */
+      /* 5.0.3.0 이상은 74바이트 (그 전에는 70) */
+      var b = new Buf(74);
+      /* 언어별 글꼴 번호 7개 — 한글은 0번, 영문은 2번(Times), 한자는 3번 글꼴을 쓴다 */
+      [0, 2, 3, 0, 0, 0, 0].forEach(function (fid) { b.u16(fid); });
+      for (var i = 0; i < 7; i++) b.u8(100);    /* 장평 */
       for (i = 0; i < 7; i++) b.u8(0);          /* 자간 */
       for (i = 0; i < 7; i++) b.u8(100);        /* 상대 크기 */
       for (i = 0; i < 7; i++) b.u8(0);          /* 글자 위치 */
@@ -3880,10 +4146,13 @@ footer.site a { color: var(--ink-2); }
       b.u32(cs[1] === 0 ? 0 : 1);               /* 속성 (굵게 등) */
       b.u8(0).u8(0);                            /* 그림자 간격 */
       b.u32(cs[1]);                             /* 글자 색 */
-      r.add('CHAR_SHAPE', 0, b.done());
+      b.u32(0).u32(0).u32(0);                   /* 밑줄·그림자·취소선 색 */
+      b.u16(0);                                 /* 테두리/배경 번호 (5.0.2.1 이상) */
+      b.u32(0);                                 /* 취소선 색 (5.0.3.0 이상) */
+      r.add('CHAR_SHAPE', 1, b.done());
     });
 
-    r.add('TAB_DEF', 0, new Buf(8).u32(0).u32(0).done());
+    r.add('TAB_DEF', 1, new Buf(8).u32(0).u32(0).done());
 
     /* 문단 모양 두 벌 — 본문(양쪽)과 제목(가운데) */
     [0, 1].forEach(function (align) {
@@ -3892,28 +4161,35 @@ footer.site a { color: var(--ink-2); }
       b.u32(0).u32(0).u32(0);              /* 여백 */
       b.u32(160);                          /* 줄 간격 */
       b.u16(0).u16(0).u16(0).u16(0);       /* 탭/번호/테두리 참조 */
-      r.add('PARA_SHAPE', 0, b.done());
+      r.add('PARA_SHAPE', 1, b.done());
     });
 
     ['바탕글', '제목'].forEach(function (name, i) {
       var b = new Buf(2 + name.length * 2 + 2 + 8 + 16);
       b.wstr(name); b.wstr(''); b.u8(0).u8(0);
       b.u16(i).u16(i);                      /* 문단 모양 / 글자 모양 번호 */
-      r.add('STYLE', 0, b.done());
+      r.add('STYLE', 1, b.done());
     });
 
     r.add('COMPATIBLE_DOCUMENT', 0, new Buf(4).u32(0).done());
-    r.add('LAYOUT_COMPATIBILITY', 0, new Buf(20).u32(0).u32(0).u32(0).u32(0).u32(0).done());
+    r.add('LAYOUT_COMPATIBILITY', 1, new Buf(20).u32(0).u32(0).u32(0).u32(0).u32(0).done());
     return r.bytes();
   }
 
-  function buildSection() {
+  function buildSection(opts) {
+    opts = opts || {};
+    var edit = opts.edit || null;      /* { index, text } — 문단 하나를 고쳐 쓴다 */
+    var omit = opts.omit || null;      /* 'nChars' — 파생 값을 일부러 안 고친다 */
     var r = new Rec();
     /* 구역 첫 문단에 딸린 설정들 — 레벨 1로 매달린다 */
-    r.add('PARA_HEADER', 0, paraHeader(1, 0, 0, 0, 1));
-    r.add('PARA_TEXT', 1, paraTextBytes([{ ctrl: 2 }]).bytes);   /* 구역 정의 컨트롤 */
+    /* 구역 정의 컨트롤은 확장 컨트롤이라 여덟 글자 자리를 차지한다.
+     * PARA_HEADER 의 글자 수도 1이 아니라 8이어야 한다 — 바로 이 페이지가
+     * 07장에서 설명하는 함정이고, 작성기가 가장 쉽게 틀리는 곳이다. */
+    var secCtrl = paraTextBytes([{ ctrl: 2 }, { ctrl: 13 }]);
+    r.add('PARA_HEADER', 0, paraHeader(secCtrl.chars, 1 << 2, 0, 0, 1));
+    r.add('PARA_TEXT', 1, secCtrl.bytes);
     r.add('PARA_CHAR_SHAPE', 1, paraCharShape([[0, 0]]));
-    r.add('CTRL_HEADER', 1, new Buf(4).u32(ctrlId('dces')).done());
+    r.add('CTRL_HEADER', 1, new Buf(4).u32(ctrlId('secd')).done());
     r.add('PAGE_DEF', 2, new Buf(40)
       .u32(59528).u32(84188)                 /* 용지 가로/세로 (1/7200 인치) */
       .u32(8504).u32(8504).u32(5668).u32(4252).u32(4252).u32(0)
@@ -3923,11 +4199,19 @@ footer.site a { color: var(--ink-2); }
     r.add('PAGE_BORDER_FILL', 2, new Buf(14).u32(0).done());
     r.add('PAGE_BORDER_FILL', 2, new Buf(14).u32(0).done());
     r.add('PAGE_BORDER_FILL', 2, new Buf(14).u32(0).done());
-    r.add('PARA_LINE_SEG', 1, paraLineSeg(1));
+    r.add('PARA_LINE_SEG', 1, paraLineSeg(secCtrl.chars));
 
-    PARAS.forEach(function (para) {
+    PARAS.forEach(function (para, pIndex) {
       if (para.table) { addTable(r); return; }
       var items = [];
+      var origChars = null;
+      if (edit && edit.index === pIndex) {
+        /* 원래 글자 수를 기억해 둔다 — "안 고치고 쓰기"를 흉내 내기 위해 */
+        var before = paraTextBytes([para.tab ? { ctrl: 9 } : '', para.text || '', { ctrl: 13 }]
+          .filter(function (x) { return x !== ''; }));
+        origChars = before.chars;
+        para = Object.assign({}, para, { text: edit.text });
+      }
       if (para.tab) items.push({ ctrl: 9 });
       var body = para.long
         ? '레코드 크기 필드는 12비트뿐이라 4095바이트까지만 담을 수 있다. ' +
@@ -3937,9 +4221,13 @@ footer.site a { color: var(--ink-2); }
       /* 4095바이트(=2047글자)를 확실히 넘겨 확장 헤더가 나오게 만든다 */
       if (para.long) { var rep = body; while (body.length * 2 < 5200) body += rep; }
       items.push(body);
+      items.push({ ctrl: 13 });        /* 실제 파일의 모든 문단은 0x0D 로 끝난다 */
       var t = paraTextBytes(items);
-      r.add('PARA_HEADER', 0, paraHeader(t.chars, para.tab ? (1 << 9) : 0,
-                                          para.shape || 0, para.style || 0, 1));
+      /* 고쳐 쓰면서 글자 수만 예전 값으로 남겨 두면 어떻게 되는지 보여 주기 위한 갈래 */
+      var declared = (omit === 'nChars' && origChars !== null) ? origChars : t.chars;
+      var isLast = pIndex === PARAS.length - 1;
+      r.add('PARA_HEADER', 0, paraHeader(declared, para.tab ? (1 << 9) : 0,
+                                          para.shape || 0, para.style || 0, 1, isLast));
       r.add('PARA_TEXT', 1, t.bytes);
       r.add('PARA_CHAR_SHAPE', 1, paraCharShape([[0, para.style === 1 ? 1 : 0]]));
       r.add('PARA_LINE_SEG', 1, paraLineSeg(t.chars));
@@ -3953,7 +4241,7 @@ footer.site a { color: var(--ink-2); }
     var cells = [['구조', '무엇이 다른가'],
                  ['CFB', '이름 붙은 스트림, 포인터로 그린 트리'],
                  ['HWP 레코드', '번호 붙은 태그, 레벨로 세우는 트리']];
-    var marker = paraTextBytes([{ ctrl: 11 }]);   /* 표가 본문에 끼어드는 자리 */
+    var marker = paraTextBytes([{ ctrl: 11 }, { ctrl: 13 }]);   /* 표가 본문에 끼어드는 자리 */
     r.add('PARA_HEADER', 0, paraHeader(marker.chars, 1 << 11, 0, 0, 1));
     r.add('PARA_TEXT', 1, marker.bytes);
     r.add('PARA_CHAR_SHAPE', 1, paraCharShape([[0, 0]]));
@@ -3967,18 +4255,20 @@ footer.site a { color: var(--ink-2); }
       .done());
     cells.forEach(function (row, ri) {
       row.forEach(function (text, ci) {
-        r.add('LIST_HEADER', 2, new Buf(30)
-          .u16(1)                   /* 이 칸에 든 문단 수 */
+        r.add('LIST_HEADER', 2, new Buf(32)
+          .u32(1)                   /* 이 칸에 든 문단 수 — INT32 다 */
           .u32(0)                   /* 속성 */
           .u16(ci).u16(ri)          /* 열 / 행 주소 */
           .u16(1).u16(1)            /* 칸 병합 개수 */
           .u32(20000).u32(3000)     /* 칸 너비 / 높이 */
           .done());
-        var t = paraTextBytes([text]);
-        r.add('PARA_HEADER', 3, paraHeader(t.chars, 0, 0, 0, 1));
-        r.add('PARA_TEXT', 4, t.bytes);
-        r.add('PARA_CHAR_SHAPE', 4, paraCharShape([[0, 0]]));
-        r.add('PARA_LINE_SEG', 4, paraLineSeg(t.chars));
+        /* 칸 안의 문단은 LIST_HEADER 의 자식이 아니라 "형제"다 (둘 다 레벨 2).
+           어느 문단이 어느 칸에 속하는지는 레벨이 아니라 위 paraCount 가 정한다. */
+        var t = paraTextBytes([text, { ctrl: 13 }]);
+        r.add('PARA_HEADER', 2, paraHeader(t.chars, 0, 0, 0, 1, true));
+        r.add('PARA_TEXT', 3, t.bytes);
+        r.add('PARA_CHAR_SHAPE', 3, paraCharShape([[0, 0]]));
+        r.add('PARA_LINE_SEG', 3, paraLineSeg(t.chars));
       });
     });
     r.add('PARA_LINE_SEG', 1, paraLineSeg(marker.chars));
@@ -4013,14 +4303,28 @@ footer.site a { color: var(--ink-2); }
   function compose(opts) {
     opts = opts || {};
     var compressed = opts.compressed !== false;
+    /* 한글은 raw deflate 뒤에 8바이트를 덧붙인다: CRC-32(LE) + 원본 길이(LE).
+     * 명세에 없는 관례라 읽는 쪽은 대개 보지 않지만, 실제 파일에는 늘 있다. */
     var pack = function (bytes) {
-      return compressed ? root.Inflate.deflateRaw(bytes) : bytes;
+      if (!compressed) return bytes;
+      var z = root.Inflate.deflateRaw(bytes);
+      var out = new Uint8Array(z.length + 8);
+      out.set(z, 0);
+      var dv = new DataView(out.buffer);
+      dv.setUint32(z.length, root.Inflate.crc32(bytes), true);
+      dv.setUint32(z.length + 4, bytes.length, true);
+      return out;
     };
 
     var docInfo = buildDocInfo();
-    var section = buildSection();
-    var prvText = utf16le(PARAS.filter(function (p) { return p.text; })
-      .map(function (p) { return p.text; }).join('\n').slice(0, 500));
+    var section = buildSection(opts);
+    /* 미리보기 텍스트도 본문을 고칠 때 같이 고쳐야 하는 파생 값이다.
+     * opts.omit === 'prvText' 이면 일부러 옛 내용을 그대로 둔다. */
+    var previewSource = PARAS.map(function (p, i) {
+      if (opts.edit && opts.edit.index === i && opts.omit !== 'prvText') return opts.edit.text;
+      return p.text || '';
+    }).filter(Boolean).join('\n').slice(0, 500);
+    var prvText = utf16le(previewSource);
 
     var raw = { docInfo: docInfo, section: section };
     var spec = {
@@ -4036,8 +4340,8 @@ footer.site a { color: var(--ink-2); }
             note: '본문. 문단 레코드가 줄줄이 들어 있다.' }
         ], note: '구역마다 SectionN 스트림이 하나씩.' },
         { name: 'BinData', storage: true, children: [
-          { name: 'BIN0001.png', content: pack(TINY_PNG),
-            note: '삽입된 그림. DocInfo의 BIN_DATA 레코드가 이 이름을 가리킨다.' }
+          { name: 'BIN0001.png', content: TINY_PNG,
+            note: '삽입된 그림. BIN_DATA 레코드가 "압축 안 함"으로 표시했으므로 원본 그대로 들어간다.' }
         ] },
         { name: 'PrvText', content: prvText,
           note: '미리보기 텍스트. 평문 UTF-16LE — 압축도 암호화도 없다.' },
@@ -4061,6 +4365,7 @@ footer.site a { color: var(--ink-2); }
   }
 
   root.HWPBuild = {
+    PARAS: PARAS,
     compose: compose, buildDocInfo: buildDocInfo, buildSection: buildSection,
     fileHeader: fileHeader, paraTextBytes: paraTextBytes, ctrlId: ctrlId,
     Rec: Rec, Buf: Buf, utf16le: utf16le
@@ -4236,7 +4541,7 @@ footer.site a { color: var(--ink-2); }
       hwpBytes: [[0x24, 4]]
     });
     if (encrypted) warn.push('암호가 걸린 문서다 — 내용을 풀 수 없다');
-    if (distributed) warn.push('배포용 문서다 — BodyText 대신 ViewText가 있고 추가 복호화가 필요하다');
+    if (distributed) warn.push('배포용 문서다 — 진짜 본문은 ViewText 쪽이고 암호화되어 있다 (BodyText 는 그대로 남아 있지만 안내문만 들어 있다)');
 
     /* --- 5. 스트림 훑기 --- */
     var streams = [];
@@ -4254,10 +4559,33 @@ footer.site a { color: var(--ink-2); }
           var r = root.Inflate.inflateAuto(raw);
           s.data = r.data;
           s.inflated = { from: raw.length, to: r.data.length, blocks: r.blocks, zlibHeader: r.zlibHeader };
+          /* 압축 데이터 뒤에 남은 바이트를 살펴본다. 한글은 여기에
+           * CRC-32(LE) + 원본 길이(LE) 8바이트를 붙여 둔다. 명세에는 없다. */
+          var tailLen = raw.length - r.consumed;
+          s.trailer = { bytes: tailLen, at: r.consumed };
+          if (tailLen >= 8) {
+            var tdv = new DataView(raw.buffer, raw.byteOffset + r.consumed, 8);
+            var crc = tdv.getUint32(0, true), isize = tdv.getUint32(4, true);
+            var want = root.Inflate.crc32(r.data);
+            s.trailer.crc = crc;
+            s.trailer.size = isize;
+            s.trailer.crcOk = crc === want;
+            s.trailer.crcZero = crc === 0;
+            s.trailer.sizeOk = isize === r.data.length;
+            s.trailer.expected = want;
+          }
         } catch (err) {
-          s.error = '압축을 풀 수 없다: ' + err.message;
-          s.data = new Uint8Array(0);
-          warn.push(e.displayPath + ': ' + s.error);
+          /* BinData 는 레코드가 "압축 안 함"으로 표시할 수 있다 (BIN_DATA 속성 비트 4~5).
+           * 그런 항목은 deflate 가 아니므로, 실패하면 평문으로 취급하는 편이 맞다. */
+          if (/^\/BinData\//.test(e.path)) {
+            s.compressed = false;
+            s.data = raw;
+            s.notDeflate = true;
+          } else {
+            s.error = '압축을 풀 수 없다: ' + err.message;
+            s.data = new Uint8Array(0);
+            warn.push(e.displayPath + ': ' + s.error);
+          }
         }
       }
       streams.push(s);
@@ -4265,13 +4593,20 @@ footer.site a { color: var(--ink-2); }
     var compCount = streams.filter(function (s) { return s.compressed && !s.error; }).length;
     var before = streams.reduce(function (a, s) { return a + (s.compressed ? s.size : 0); }, 0);
     var after = streams.reduce(function (a, s) { return a + (s.compressed ? s.data.length : 0); }, 0);
+    var withTrailer = streams.filter(function (x) { return x.trailer && x.trailer.bytes >= 8; });
+    var crcOk = withTrailer.filter(function (x) { return x.trailer.crcOk; }).length;
     step({
       id: 'inflate', title: '5. 압축 풀기',
       detail: compressed
         ? '스트림 ' + compCount + '개를 풀었다. ' + before + '바이트 → ' + after + '바이트 (' +
           (before ? (after / before).toFixed(1) : '0') + '배). ' +
           'zlib 헤더 없는 raw deflate라, 파이썬이라면 zlib.decompress(data, -15)로 푼다. ' +
-          'FileHeader와 미리보기 스트림은 압축 대상이 아니다 — 압축 여부를 FileHeader에서 읽어야 하니까.'
+          'FileHeader와 미리보기 스트림은 압축 대상이 아니다 — 압축 여부를 FileHeader에서 읽어야 하니까.' +
+          (withTrailer.length
+            ? ' 그리고 압축 데이터 뒤에 8바이트가 더 붙어 있다: CRC-32와 원본 길이. ' +
+              withTrailer.length + '개 중 ' + crcOk + '개의 CRC가 맞았다. ' +
+              '명세에 없는 관례라 읽는 쪽은 대개 이 8바이트를 그냥 버린다.'
+            : '')
         : '압축 비트가 꺼져 있어 스트림을 그대로 쓴다.'
     });
 
@@ -4308,15 +4643,40 @@ footer.site a { color: var(--ink-2); }
     /* --- 8. 글자 뽑기 --- */
     var sections = recordStreams.filter(function (s) { return /^\/(BodyText|ViewText)\//.test(s.path); });
     var paragraphs = [];
+    var mismatches = [];
     sections.forEach(function (s) {
+      var lastHeader = null;
       s.records.forEach(function (r) {
-        if (H.tagName(r.tag) !== 'PARA_TEXT') return;
+        var name = H.tagName(r.tag);
+        if (name === 'PARA_HEADER') {
+          /* 최상위 비트는 개수가 아니라 깃발이다 — 반드시 가리고 세야 한다 */
+          var rawN = new DataView(s.data.buffer, s.data.byteOffset + r.payloadOffset, 4).getUint32(0, true);
+          lastHeader = { rec: r, declared: rawN & 0x7fffffff, lastInList: !!(rawN & 0x80000000) };
+          r.declaredChars = lastHeader.declared;
+          r.lastInList = lastHeader.lastInList;
+          return;
+        }
+        if (name !== 'PARA_TEXT') return;
         var body = s.data.subarray(r.payloadOffset, r.payloadOffset + r.size);
         var t = readParaText(body);
         r.parsed = t;
-        paragraphs.push({ stream: s.path, record: r, text: t.text, pieces: t.pieces });
+        var actual = r.size / 2;
+        var declared = lastHeader ? lastHeader.declared : null;
+        if (declared !== null && declared !== actual) {
+          mismatches.push({ stream: s.path, header: lastHeader.rec, text: r,
+                            declared: declared, actual: actual });
+        }
+        paragraphs.push({ stream: s.path, record: r, text: t.text, pieces: t.pieces,
+                          declared: declared, actual: actual,
+                          lastInList: lastHeader ? lastHeader.lastInList : false });
+        lastHeader = null;
       });
     });
+    if (mismatches.length) {
+      warn.push('PARA_HEADER가 말하는 글자 수와 PARA_TEXT의 실제 크기가 어긋난 문단이 ' +
+                mismatches.length + '개 있다 (' +
+                mismatches.map(function (m) { return m.declared + '≠' + m.actual; }).join(', ') + ')');
+    }
     var text = paragraphs.map(function (p) { return p.text; }).join('\n');
     var ctrlCount = paragraphs.reduce(function (a, p) {
       return a + p.pieces.filter(function (x) { return x.kind === 'ctrl'; }).length;
@@ -4337,7 +4697,7 @@ footer.site a { color: var(--ink-2); }
       compressed: compressed, encrypted: encrypted, distributed: distributed,
       streams: streams, recordStreams: recordStreams,
       docInfo: docInfo, sections: sections,
-      paragraphs: paragraphs, text: text,
+      paragraphs: paragraphs, mismatches: mismatches, text: text,
       maxLevel: maxLevel,
       readParaText: readParaText
     };
@@ -5307,15 +5667,20 @@ footer.site a { color: var(--ink-2); }
         break;
       case 'BIN_DATA': {
         var t = u16(0);
-        add(0, 2, '속성', t !== null ? '0x' + t.toString(16).toUpperCase() : null,
-            '하위 4비트: 0=연결, 1=포함, 2=스토리지');
+        add(0, 2, '속성', t !== null ? '0x' + t.toString(16).toUpperCase() +
+            '  (종류 ' + (t & 0xf) + ', 압축 ' + ((t >> 4) & 3) + ')' : null,
+            '하위 4비트 = 종류(0 연결·1 포함·2 스토리지), 비트 4~5 = 압축(0 기본·1 무조건·2 안 함)');
         add(2, 2, 'BinData 항목 번호', u16(2), 'BinData/BIN000N 의 N');
         var ext = wstr(b, 4);
         add(4, ext.len, '확장자', '"' + ext.text + '"');
         break;
       }
-      case 'PARA_HEADER':
-        add(0, 4, '글자 수', u32(0), 'PARA_TEXT 가 담을 WCHAR 개수');
+      case 'PARA_HEADER': {
+        var raw = u32(0);
+        var nch = raw === null ? null : (raw & 0x7fffffff);
+        add(0, 4, '글자 수', nch === null ? null :
+            nch + (raw & 0x80000000 ? '   (최상위 비트가 켜져 있다 — 목록의 마지막 문단)' : ''),
+            '최상위 비트는 개수가 아니라 깃발이다. 0x7FFFFFFF 로 가려야 한다');
         add(4, 4, '컨트롤 마스크', u32(4) !== null ? '0x' + u32(4).toString(16) : null,
             '이 문단에 어떤 제어 문자가 들어 있는지의 비트 요약');
         add(8, 2, '문단 모양 번호', u16(8), 'DocInfo 의 PARA_SHAPE 배열 인덱스');
@@ -5327,6 +5692,7 @@ footer.site a { color: var(--ink-2); }
         add(18, 4, '문단 인스턴스 ID', u32(18));
         if (b.length >= 24) add(22, 2, '변경 추적 병합', u16(22), '5.0.3.2 이상에서만 있는 필드');
         break;
+      }
       case 'PARA_CHAR_SHAPE':
         for (var k = 0; k * 8 + 8 <= b.length; k++) {
           add(k * 8, 8, '구간 ' + k,
@@ -5340,8 +5706,9 @@ footer.site a { color: var(--ink-2); }
         if (id !== null) {
           chars = String.fromCharCode((id >>> 24) & 0xff, (id >>> 16) & 0xff, (id >>> 8) & 0xff, id & 0xff);
         }
-        add(0, 4, '컨트롤 ID', '"' + chars + '"',
-            '네 글자를 뒤집어 넣기 때문에 hex 뷰에서는 거꾸로 보인다. tbl=표, dces=구역 정의, gso=그리기');
+        var disk = chars.split('').reverse().join('');
+        add(0, 4, '컨트롤 ID', '"' + chars + '"   (디스크에는 "' + disk + '" 순서로)',
+            '논리적 이름은 tbl =표, secd=구역 정의, gso =그리기. 디스크에는 네 글자가 뒤집혀 놓인다');
         break;
       }
       case 'TABLE':
@@ -5351,11 +5718,12 @@ footer.site a { color: var(--ink-2); }
         add(8, 2, '셀 간격', u16(8));
         break;
       case 'LIST_HEADER':
-        add(0, 2, '문단 개수', u16(0), '이 칸(혹은 컨트롤) 안에 문단이 몇 개인지');
-        add(2, 4, '속성', u32(2) !== null ? '0x' + u32(2).toString(16) : null);
-        add(6, 2, '열 주소', u16(6));
-        add(8, 2, '행 주소', u16(8));
-        add(14, 4, '칸 너비', u16(14));
+        add(0, 4, '문단 개수', u32(0),
+            '뒤따라오는 "같은 레벨"의 PARA_HEADER 를 이만큼 세어 가면 이 칸에 속한 문단이다');
+        add(4, 4, '속성', u32(4) !== null ? '0x' + u32(4).toString(16) : null);
+        add(8, 2, '열 주소', u16(8));
+        add(10, 2, '행 주소', u16(10));
+        add(16, 4, '칸 너비', u32(16));
         break;
       case 'PAGE_DEF':
         add(0, 4, '용지 가로', u32(0) !== null ? (u32(0) / 7200).toFixed(2) + ' 인치' : null, '1/7200 인치 단위');
@@ -5793,6 +6161,19 @@ footer.site a { color: var(--ink-2); }
                    Math.round(100 - s.raw.length / s.data.length * 100) + '% 절약)');
         lines.push('DEFLATE 블록 ' + s.inflated.blocks + '개, zlib 헤더 ' +
                    (s.inflated.zlibHeader ? '있음' : '없음 (raw deflate)') + '.');
+        if (s.trailer && s.trailer.bytes >= 8) {
+          lines.push('');
+          lines.push('압축 데이터는 ' + U.hex(s.trailer.at, 6) + ' 에서 끝나고, 그 뒤 8바이트가 더 있다:');
+          lines.push('  CRC-32   ' + U.hex(s.trailer.crc, 8) +
+                     (s.trailer.crcZero ? '   ← 0이다. 이 파일을 쓴 프로그램은 CRC를 계산하지 않았다'
+                                        : s.trailer.crcOk ? '   ← 풀어 낸 데이터와 일치한다' : '   ← 맞지 않는다'));
+          lines.push('  원본 길이 ' + U.hex(s.trailer.size, 8) + ' = ' + U.num(s.trailer.size) +
+                     (s.trailer.sizeOk ? '   ← 일치' : '   ← 맞지 않는다'));
+          lines.push('  이 8바이트는 명세에 없다. gzip 꼬리에서 머리만 뗀 모양이고,');
+          lines.push('  inflate 는 마지막 블록에서 멈추므로 읽는 쪽은 대개 그냥 버린다.');
+        } else if (s.trailer) {
+          lines.push('압축 데이터 뒤에 남은 바이트: ' + s.trailer.bytes + '개.');
+        }
         lines.push('');
         lines.push('왼쪽 첫 바이트: ' + Array.prototype.slice.call(s.raw.subarray(0, 6)).map(U.hexb).join(' ') +
                    ' …  — 아무 구조도 읽히지 않는다.');
@@ -5802,8 +6183,8 @@ footer.site a { color: var(--ink-2); }
                      '  = 레코드 머리 ' + U.hex(r0.raw, 8));
           lines.push('  → 태그 ' + r0.tag + '(' + H.tagName(r0.tag) + '), 레벨 ' + r0.level + ', 크기 ' + r0.size);
           lines.push('');
-          lines.push('압축을 풀어야만 구조가 보인다. 그리고 raw deflate에는 검사값이 없어서,');
-          lines.push('잘못 풀어도 예외 대신 그럴듯한 쓰레기가 나온다.');
+          lines.push('압축을 풀어야만 구조가 보인다. 그리고 위의 CRC를 아무도 확인하지 않기 때문에,');
+          lines.push('잘못 풀어도 예외 대신 그럴듯한 쓰레기가 나온다 — 검사할 수 있는데 하지 않는 것이다.');
         }
       }
       note.textContent = lines.join('\n');
@@ -6120,6 +6501,194 @@ footer.site a { color: var(--ink-2); }
   }
 
   /* ==================================================================
+   * 6b. 4095 경계 — 읽는 쪽과 쓰는 쪽의 규칙이 다르다
+   * ================================================================== */
+  function edgePanel(node) {
+    var slider = el('input', { type: 'range', min: '4088', max: '4100', value: '4095',
+      style: { width: 'min(420px,100%)' } });
+    var val = el('div', { class: 'val' });
+    var out = el('div', { class: 'readout', style: { marginTop: '.8rem' } });
+    node.appendChild(el('div', { class: 'calc' }, [
+      el('div', {}, [el('label', { text: '레코드 내용의 크기' }), val]),
+      el('div', { style: { flex: '1 1 280px' } }, [el('label', { text: '4088 – 4100 바이트' }), slider])
+    ]));
+    node.appendChild(out);
+
+    function draw() {
+      var n = +slider.value;
+      val.textContent = U.num(n) + ' B';
+      var correct = n >= H.SIZE_ESCAPE;        /* 4095 는 신호로 써 버렸으므로 값으로 쓸 수 없다 */
+      var buggy = n > H.SIZE_ESCAPE;           /* 실제 구현에 있었던 흔한 실수 */
+      var lines = [];
+      lines.push('올바른 작성기:  size >= 4095  →  ' +
+        (correct ? '확장 헤더 (머리 8바이트, 크기 자리에 0xFFF)' : '보통 헤더 (머리 4바이트, 크기 자리에 ' + n + ')'));
+      lines.push('흔한 버그   :  size >  4095  →  ' +
+        (buggy ? '확장 헤더' : '보통 헤더 (크기 자리에 ' + Math.min(n, 4095) + ')'));
+      lines.push('');
+      if (n === H.SIZE_ESCAPE) {
+        lines.push('★ 여기가 갈리는 지점이다.');
+        lines.push('');
+        lines.push('내용이 정확히 4095바이트일 때, > 로 비교하는 작성기는 보통 헤더를 쓰면서');
+        lines.push('크기 자리에 4095 = 0xFFF 를 적는다. 그런데 읽는 쪽에서 0xFFF 는');
+        lines.push('"뒤에 4바이트가 더 있다"는 신호다.');
+        lines.push('');
+        lines.push('그래서 읽는 쪽은 다음 레코드의 머리 4바이트를 "크기"로 집어삼키고,');
+        lines.push('그 뒤로 스트림 전체가 어긋난다. 파일은 열리지 않거나 엉뚱한 내용이 나온다.');
+        lines.push('');
+        lines.push('실제로 libhwp 라는 구현에 이 버그가 있었다.');
+      } else if (n > H.SIZE_ESCAPE) {
+        lines.push('4095를 넘으므로 두 규칙이 같은 답을 낸다 — 확장 헤더.');
+        lines.push('머리 8바이트 + 내용 ' + U.num(n) + '바이트.');
+      } else {
+        lines.push('4095 미만이라 두 규칙이 같은 답을 낸다 — 보통 헤더.');
+        lines.push('머리 4바이트 + 내용 ' + U.num(n) + '바이트.');
+      }
+      lines.push('');
+      lines.push('한 레코드가 보통 헤더로 담을 수 있는 크기: 0 – 4094 바이트.');
+      lines.push('4095는 값이 아니라 신호로 쓰였기 때문에, 12비트의 마지막 한 칸이 비어 있는 셈이다.');
+      out.textContent = lines.join('\n');
+    }
+    slider.oninput = draw;
+    return { render: draw };
+  }
+
+  /* ==================================================================
+   * 6c. 쓰기 실습실 — 파생 값을 하나 빼먹으면 무슨 일이 생기나
+   * ================================================================== */
+  function writeLab(node, rebuild) {
+    var picker = el('select', { class: 'btn' });
+    var input = el('input', { class: 'btn mono', type: 'text',
+      style: { flex: '1 1 320px', minWidth: '12rem' } });
+    var goB = el('button', { class: 'btn primary', type: 'button', text: '고쳐 쓰기' });
+    var badB = el('button', { class: 'btn danger', type: 'button', text: '글자 수는 그대로 두고 쓰기' });
+    var prvB = el('button', { class: 'btn danger', type: 'button', text: '미리보기는 그대로 두고 쓰기' });
+    var resetB = el('button', { class: 'btn', type: 'button', text: '원래대로' });
+    var out = el('div', { class: 'readout', style: { marginTop: '.9rem' } });
+    node.appendChild(el('div', { class: 'panel-tools', style: { marginLeft: 0, flexWrap: 'wrap' } },
+      [el('span', { class: 'note', text: '문단' }), picker, input, goB]));
+    node.appendChild(el('div', { class: 'panel-tools', style: { marginLeft: 0, marginTop: '.4rem' } },
+      [badB, prvB, resetB]));
+    node.appendChild(out);
+    var P = null, editable = [];
+
+    function fill() {
+      U.clear(picker);
+      editable = [];
+      (root.HWPBuild.PARAS || []).forEach(function (para, i) {
+        if (!para.text || para.long) return;
+        editable.push(i);
+        picker.appendChild(el('option', { value: i, text: '#' + i + '  ' + para.text.slice(0, 30) }));
+      });
+      if (editable.length) input.value = root.HWPBuild.PARAS[editable[0]].text;
+    }
+    picker.onchange = function () { input.value = root.HWPBuild.PARAS[+picker.value].text; };
+
+    function report(before, after, omit) {
+      var lines = [];
+      var idx = +picker.value;
+      var b = before.paragraphs, a = after.paragraphs;
+      lines.push('본문 한 문단의 글자를 바꿨다. 같이 바뀌어야 하는 것들:');
+      lines.push('');
+      var rows = [
+        ['PARA_TEXT 레코드 크기', before.secSize, after.secSize],
+        ['PARA_HEADER 의 글자 수', before.declared, after.declared],
+        ['레코드 머리 4바이트', U.hex(before.rawHeader, 8), U.hex(after.rawHeader, 8)],
+        ['PrvText 스트림 크기', before.prv, after.prv],
+        ['압축 뒤 스트림 크기', before.packed, after.packed],
+        ['CRC-32 꼬리', U.hex(before.crc, 8), U.hex(after.crc, 8)]
+      ];
+      rows.forEach(function (row) {
+        var same = String(row[1]) === String(row[2]);
+        lines.push('  ' + String(row[0]).padEnd(24) + String(row[1]).padStart(12) +
+                   '  →  ' + String(row[2]).padStart(12) + (same ? '   (그대로)' : ''));
+      });
+      lines.push('');
+      if (!omit) {
+        lines.push('여섯 가지가 전부 맞물려 바뀌었다. 파서가 남긴 경고: ' +
+                   (after.warn.length ? after.warn.join(' / ') : '없음.'));
+        lines.push('');
+        lines.push('이 중 어느 것도 파일 안에서 자동으로 계산되지 않는다.');
+        lines.push('전부 쓰는 쪽이 손으로 맞춰 넣어야 하고, 아무도 검사해 주지 않는다.');
+      } else if (omit === 'nChars') {
+        lines.push('※ 이번에는 PARA_HEADER 의 글자 수만 옛 값으로 남겨 두었다.');
+        lines.push('');
+        if (after.warn.length) {
+          after.warn.forEach(function (w) { lines.push('  ⚠ ' + w); });
+        }
+        lines.push('');
+        lines.push('파일은 여전히 "열린다". CFB도 멀쩡하고, 압축도 풀리고, 레코드도 잘 잘린다.');
+        lines.push('어긋난 것은 두 값의 관계뿐이다 — 그리고 그 관계를 검사하는 곳은 아무 데도 없다.');
+        lines.push('어떤 프로그램은 선언된 글자 수만큼만 읽어 뒷부분을 잘라 버리고,');
+        lines.push('어떤 프로그램은 레코드 크기를 믿고 전부 읽는다. 프로그램마다 다르게 보인다.');
+      } else {
+        lines.push('※ 이번에는 PrvText(미리보기 텍스트)를 옛 내용 그대로 두었다.');
+        lines.push('');
+        lines.push('본문:      "' + after.bodySnippet + '"');
+        lines.push('미리보기:  "' + after.prvSnippet + '"');
+        lines.push('');
+        lines.push('경고는 하나도 나오지 않는다. 형식상 아무 문제가 없기 때문이다.');
+        lines.push('미리보기는 원래 본문과 별개로 저장되는 값이라, 갱신을 빠뜨려도 파일은 유효하다.');
+        lines.push('그래서 실제 문서에서도 미리보기가 본문과 어긋나 있는 경우가 있다 —');
+        lines.push('검색 색인이나 포렌식에서 이 차이가 단서가 되기도 한다.');
+      }
+      out.textContent = lines.join('\n');
+    }
+
+    function snapshot(hwp) {
+      var idx = +picker.value;
+      var target = hwp.paragraphs.filter(function (x) { return x.text.replace(/[\n\t]/g, '').length; })[0];
+      /* 편집한 문단을 이름이 아니라 순서로 찾는다 */
+      var sec = hwp.recordStreams.filter(function (x) { return /Section/.test(x.path); })[0];
+      var headers = sec.records.filter(function (r) { return H.tagName(r.tag) === 'PARA_HEADER'; });
+      var texts = sec.records.filter(function (r) { return H.tagName(r.tag) === 'PARA_TEXT'; });
+      var order = editable.indexOf(idx) + 1;   /* 0번은 구역 정의 문단 */
+      var t = texts[order] || texts[0];
+      var h = headers[order] || headers[0];
+      var prvStream = hwp.streams.filter(function (x) { return x.path === '/PrvText'; })[0];
+      var secStream = hwp.streams.filter(function (x) { return /Section0/.test(x.path); })[0];
+      var dec = '';
+      for (var i = 0; i + 1 < Math.min(prvStream.data.length, 160); i += 2) {
+        dec += String.fromCharCode(prvStream.data[i] | (prvStream.data[i + 1] << 8));
+      }
+      return {
+        secSize: t.size, declared: h.declaredChars, rawHeader: t.raw,
+        prv: prvStream.size, packed: secStream.size,
+        crc: secStream.trailer ? secStream.trailer.crc : 0,
+        warn: hwp.warn,
+        bodySnippet: (hwp.paragraphs[order] ? hwp.paragraphs[order].text : '').replace(/[\n\t]/g, ' ').slice(0, 42),
+        prvSnippet: dec.split('\n').slice(0, 3).join(' / ').slice(0, 42)
+      };
+    }
+
+    function run(omit) {
+      var idx = +picker.value;
+      var before = snapshot(P);
+      var after = rebuild({ edit: { index: idx, text: input.value }, omit: omit });
+      if (!after) return;
+      report(before, snapshot(after), omit);
+      P = after;
+    }
+    goB.onclick = function () { run(null); };
+    badB.onclick = function () { run('nChars'); };
+    prvB.onclick = function () { run('prvText'); };
+    resetB.onclick = function () {
+      var after = rebuild({});
+      if (after) { P = after; fill();
+        out.textContent = '원래 문서로 되돌렸다. 문단을 골라 글자를 고친 뒤 버튼을 눌러 보자.'; }
+    };
+
+    function render(p) {
+      P = p;
+      if (!picker.options.length) fill();
+      if (!out.textContent) {
+        out.textContent = '문단을 고르고 글자를 바꾼 다음 "고쳐 쓰기"를 눌러 보자.\n' +
+          '레코드를 다시 만들고, 다시 압축하고, CFB에 다시 넣은 새 파일이 만들어진다.';
+      }
+    }
+    return { render: render };
+  }
+
+  /* ==================================================================
    * 7. 읽기 워크스루
    * ================================================================== */
   function walkPanel(node) {
@@ -6188,7 +6757,7 @@ footer.site a { color: var(--ink-2); }
 
   root.HWPPanels = {
     recordMap: recordMap, headerPanel: headerPanel, streamPanel: streamPanel,
-    zipPanel: zipPanel, bitsPanel: bitsPanel,
+    zipPanel: zipPanel, bitsPanel: bitsPanel, edgePanel: edgePanel, writeLab: writeLab,
     recordPanel: recordPanel, treePanel: treePanel, textPanel: textPanel,
     walkPanel: walkPanel, decode: decode
   };
@@ -6365,6 +6934,26 @@ footer.site a { color: var(--ink-2); }
     panels.records = root.HWPPanels.recordPanel(document.getElementById('hwp-record-panel'));
     panels.text = root.HWPPanels.textPanel(document.getElementById('hwp-text-panel'));
     panels.walk = root.HWPPanels.walkPanel(document.getElementById('hwp-walk-panel'));
+    panels.edge = root.HWPPanels.edgePanel(document.getElementById('hwp-edge-panel'));
+    panels.write = root.HWPPanels.writeLab(document.getElementById('hwp-write-lab'), function (opts) {
+      /* 실습실이 파일을 실제로 다시 만든다. 압축 여부는 현재 설정을 따른다. */
+      var bytes = root.HWPBuild.compose(Object.assign({
+        compressed: compressed, timestamp: Date.UTC(2024, 2, 14, 10, 0, 0)
+      }, opts)).bytes;
+      var cfb = root.CFBParse.parse(bytes);
+      var hwp = root.HWPParse.parse(cfb);
+      if (!hwp.ok) return null;
+      annotate(cfb, hwp);
+      U.set({ bytes: cfb.bytes, parsed: cfb, hwp: hwp });
+      ['header', 'streams', 'zip', 'bits', 'tree', 'records', 'text', 'walk'].forEach(function (k) {
+        try { panels[k].render(hwp); } catch (e) { console.error(k, e); }
+      });
+      heroMap.render(cfb, {});
+      heroStream = hwp.recordStreams.filter(function (x) { return /Section/.test(x.path); })[0];
+      if (heroStream) heroRec.render(heroStream, null);
+      buildRibbon(cfb); paintRibbon(null);
+      return hwp;
+    });
 
     U.subscribe(function (S) {
       if (!S.parsed) return;
