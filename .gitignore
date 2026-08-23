@@ -2,3 +2,7 @@ node_modules/
 package-lock.json
 # 로컬 브라우저 점검 스크립트 (커밋하지 않는다)
 *.local.mjs
+# 연구 에이전트가 참고용으로 받아 온 구현체들 (커밋하지 않는다)
+hwplib/
+pyhwp/
+hwp.js/

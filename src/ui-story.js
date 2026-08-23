@@ -419,13 +419,13 @@
    * ================================================================== */
   function fileLoader(node, onLoad) {
     var input = el('input', { type: 'file', class: 'sr-only', id: 'cfb-file',
-      accept: '.doc,.xls,.ppt,.msi,.msg,.db,.vsd,.pub,.dot,.xlt,.pot,.wps,.sda,.sdw,.thmx,application/*' });
+      accept: '.hwp,.doc,.xls,.ppt,.msi,.msg,.db,.vsd,.pub,.dot,.xlt,.pot,.wps,.sda,.sdw,.thmx,application/*' });
     var zone = el('div', { class: 'dropzone' }, [
       el('p', { style: { margin: '0 0 .6rem' } }, [
         el('strong', { text: '내 파일을 여기에 끌어다 놓아 보자' })
       ]),
       el('p', { class: 'note', style: { margin: '0 0 .9rem' } },
-        '.doc · .xls · .ppt (2003 이전) · .msi · .msg · Thumbs.db — 전부 CFB 컨테이너다. ' +
+        '.hwp · .doc · .xls · .ppt (2003 이전) · .msi · .msg · Thumbs.db — 전부 CFB 컨테이너다. ' +
         '파일은 브라우저 안에서만 읽히고 아무 곳에도 전송되지 않는다.'),
       el('label', { class: 'btn primary', for: 'cfb-file', style: { cursor: 'pointer' }, text: '파일 고르기' }),
       input
@@ -447,8 +447,8 @@
           var isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
           msg.appendChild(el('div', { class: 'warnbox' },
             p.error + (isZip
-              ? ' 앞 두 바이트가 "PK"다 — 이건 ZIP 파일이다. .docx / .xlsx / .pptx는 CFB가 아니라 ZIP이다. ' +
-                '(단, 암호가 걸린 .docx는 다시 CFB 껍데기 안에 들어간다.)'
+              ? ' 앞 두 바이트가 "PK"다 — 이건 ZIP 파일이다. .docx / .xlsx / .pptx / .hwpx 는 ' +
+                'CFB가 아니라 ZIP이다. (단, 암호가 걸린 .docx는 다시 CFB 껍데기 안에 들어간다.)'
               : ' 첫 8바이트: ' + Array.prototype.slice.call(bytes.subarray(0, 8))
                   .map(U.hexb).join(' ') + '.')));
           return;

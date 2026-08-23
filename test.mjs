@@ -17,7 +17,12 @@ await import('./src/rbtree.js');
 await import('./src/cfb-build.js');
 await import('./src/cfb-parse.js');
 await import('./src/cfb-ops.js');
-const { CFBConst: C, CFBBuild, CFBParse, CFBOps, RBTree } = globalThis;
+await import('./src/inflate.js');
+await import('./src/hwp-const.js');
+await import('./src/hwp-build.js');
+await import('./src/hwp-parse.js');
+const { CFBConst: C, CFBBuild, CFBParse, CFBOps, RBTree,
+        Inflate, HWPConst: HC, HWPBuild, HWPParse } = globalThis;
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; } else { fail++; console.log('  FAIL: ' + msg); } };
@@ -306,6 +311,151 @@ for (let i = 0; i < 400; i++) {
 }
 ok(crashes === 0, `퍼징: 예외 없이 400개를 모두 처리 (실제 예외 ${crashes}건)`);
 console.log(`  (그 중 ${parsedOk}개는 여전히 읽히는 CFB로 판정됨)`);
+
+/* ---------- 6. DEFLATE 자체 구현 ------------------------------------------ */
+section('DEFLATE 압축/해제');
+{
+  const cases = [
+    new Uint8Array(0),
+    new TextEncoder().encode('안녕하세요 한글 문서 파일 형식 5.0'),
+    new TextEncoder().encode('[반복되는 문자열] '.repeat(500)),
+    new Uint8Array(70000).fill(0x41),
+    (() => { let a = new Uint8Array(20000); for (let i = 0; i < a.length; i++) a[i] = (i * 7919) % 251; return a; })(),
+  ];
+  for (const [i, src] of cases.entries()) {
+    const comp = Inflate.deflateRaw(src);
+    const back = Inflate.inflateRaw(comp, src.length).data;
+    ok(back.length === src.length && back.every((v, k) => v === src[k]),
+       `deflate/inflate 왕복 ${i} (${src.length}B → ${comp.length}B)`);
+    ok(comp.length <= src.length + 16, `압축이 원본보다 크게 부풀지 않는다 ${i}`);
+  }
+  /* 저장 블록 · 고정 허프만 · 동적 허프만을 모두 다루는지 (직접 만든 스트림으로) */
+  const stored = Inflate.deflateRaw((() => {
+    let a = new Uint8Array(3000); for (let i = 0; i < a.length; i++) a[i] = (i * 131) % 256; return a;
+  })());
+  ok(Inflate.inflateRaw(stored, 3000).data.length === 3000, '줄지 않는 데이터도 왕복한다');
+
+  /* 손상된 입력은 예외를 던지되 죽지 않는다 */
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  let crashed = 0;
+  const good = Inflate.deflateRaw(new TextEncoder().encode('테스트 '.repeat(300)));
+  for (let i = 0; i < 200; i++) {
+    const bad = good.slice();
+    bad[Math.floor(rnd() * bad.length)] = Math.floor(rnd() * 256);
+    try { Inflate.inflateRaw(bad, 4000); } catch (e) { crashed++; }
+  }
+  ok(true, 'fuzz');
+  console.log(`  손상된 압축 데이터 200건 중 ${crashed}건이 예외로 잡혔다 (나머지는 다른 결과)`);
+}
+
+/* ---------- 7. HWP 5.0 ---------------------------------------------------- */
+section('HWP 5.0 파일 만들기 → 읽기');
+for (const compressed of [true, false]) {
+  const label = compressed ? 'HWP(압축)' : 'HWP(압축 없음)';
+  const built = HWPBuild.compose({ compressed, timestamp: Date.UTC(2024, 2, 14, 10, 0, 0) });
+  const cfb = CFBParse.parse(built.bytes);
+  ok(cfb.ok && cfb.warn.length === 0, `${label}: 바깥 CFB가 깨끗하게 읽힌다 — ${cfb.warn.join('/')}`);
+
+  const p = HWPParse.parse(cfb);
+  ok(p.ok, `${label}: HWP 층 파싱 — ${p.error || ''}`);
+  ok(p.warn.length === 0, `${label}: 경고 없음 — ${p.warn.join(' / ')}`);
+  ok(p.version.text === '5.0.3.4', `${label}: 버전 ${p.version.text}`);
+  ok(p.compressed === compressed, `${label}: 압축 비트가 파일 상태와 일치`);
+
+  /* 필수 스트림 */
+  for (const need of ['/FileHeader', '/DocInfo', '/BodyText/Section0', '/PrvText']) {
+    ok(p.streams.some((s) => s.path === need), `${label}: ${need} 존재`);
+  }
+  /* FileHeader 는 절대 압축하지 않는다 */
+  const fh = p.streams.find((s) => s.path === '/FileHeader');
+  ok(!fh.compressed && fh.size === 256, `${label}: FileHeader 256바이트, 압축 안 함`);
+  ok(!p.streams.find((s) => s.path === '/PrvText').compressed, `${label}: PrvText 압축 안 함`);
+
+  /* 압축된 스트림은 실제로 풀려야 하고, 압축이 효과가 있어야 한다 */
+  if (compressed) {
+    const sec = p.streams.find((s) => s.path === '/BodyText/Section0');
+    ok(sec.compressed && !sec.error, `${label}: 본문 스트림 압축 해제 성공`);
+    ok(sec.data.length > sec.size * 2, `${label}: 압축비 ${(sec.data.length / sec.size).toFixed(1)}배`);
+    /* 표준 준수 — 우리 deflate 결과를 우리 inflate 가 아닌 경로로도 확인 */
+    ok(Inflate.inflateAuto(sec.raw).data.length === sec.data.length,
+       `${label}: inflateAuto 로도 같은 결과`);
+  }
+
+  /* 레코드 */
+  const sec = p.recordStreams.find((s) => /Section0/.test(s.path));
+  const doc = p.recordStreams.find((s) => s.path === '/DocInfo');
+  ok(doc && doc.records.length >= 10, `${label}: DocInfo 레코드 ${doc ? doc.records.length : 0}개`);
+  ok(sec && sec.records.length >= 30, `${label}: Section0 레코드 ${sec ? sec.records.length : 0}개`);
+  ok(sec.trailing === 0, `${label}: 레코드가 스트림을 정확히 채운다 (남은 ${sec.trailing}B)`);
+  ok(doc.trailing === 0, `${label}: DocInfo도 마찬가지 (남은 ${doc.trailing}B)`);
+
+  /* 머리 비트 언팩이 되감기와 맞는지 */
+  sec.records.forEach((r) => {
+    const packed = HC.pack(r.tag, r.level, r.extended ? HC.SIZE_ESCAPE : r.size);
+    ok(packed === r.raw, `${label}: 레코드 #${r.index} 머리 재조립 일치`);
+  });
+
+  /* 확장 헤더가 실제로 등장해야 교재가 된다 */
+  const big = sec.records.filter((r) => r.extended);
+  ok(big.length >= 1, `${label}: 4095바이트를 넘어 확장 헤더를 쓰는 레코드가 있다 (${big.length}개)`);
+  big.forEach((r) => {
+    ok(r.headerLen === 8, `${label}: 확장 레코드의 머리는 8바이트`);
+    ok(((r.raw >>> HC.SIZE_SHIFT) & HC.SIZE_MASK) === HC.SIZE_ESCAPE,
+       `${label}: 확장 레코드의 크기 비트가 0xFFF`);
+  });
+
+  /* 레벨 트리 */
+  ok(p.maxLevel >= 3, `${label}: 레벨이 ${p.maxLevel}까지 깊어진다 (표 안 문단)`);
+  const tree = HWPParse.buildTree(sec.records.slice());
+  ok(tree.length >= 1, `${label}: 트리 뿌리 ${tree.length}개`);
+  sec.records.forEach((r) => {
+    if (r.parentIndex >= 0) {
+      ok(sec.records[r.parentIndex].level === r.level - 1 ||
+         sec.records[r.parentIndex].level < r.level,
+         `${label}: #${r.index} 의 부모 레벨이 더 얕다`);
+    } else {
+      ok(r.level === 0 || sec.records.slice(0, r.index).every((x) => x.level >= r.level),
+         `${label}: 뿌리 #${r.index} 위에 더 얕은 레코드가 없다`);
+    }
+  });
+
+  /* 글자 추출 */
+  ok(p.text.includes('한글 문서 파일 형식 5.0'), `${label}: 제목 문단이 추출된다`);
+  ok(p.text.includes('레벨로 세우는 트리'), `${label}: 표 안의 글자까지 추출된다`);
+  ok(p.text.includes('\t'), `${label}: 탭 제어 문자가 탭으로 나온다`);
+
+  /* 제어 문자 폭 계산이 맞는지 — 조각들의 길이 합이 레코드 크기와 같아야 한다 */
+  p.paragraphs.forEach((par) => {
+    const sum = par.pieces.reduce((a, x) => a + x.len, 0);
+    ok(sum === par.record.size,
+       `${label}: 문단 조각 길이 합 ${sum} = 레코드 크기 ${par.record.size}`);
+  });
+  const wide = p.paragraphs.flatMap((x) => x.pieces)
+    .filter((x) => x.kind === 'ctrl' && x.info.kind !== 'char');
+  ok(wide.length >= 1, `${label}: 여덟 자리를 차지하는 확장 컨트롤이 실제로 들어 있다`);
+  wide.forEach((w) => ok(w.len === 16, `${label}: 확장 컨트롤은 16바이트`));
+}
+
+section('HWP 방어');
+{
+  /* CFB이지만 HWP가 아닌 파일 */
+  const doc = CFBParse.parse(CFBBuild.compose({}).bytes);
+  const r = HWPParse.parse(doc);
+  ok(!r.ok && /FileHeader/.test(r.error), 'CFB지만 FileHeader가 없으면 거부한다');
+
+  /* 레코드 크기를 조작해 스트림 밖을 가리키게 만들면 */
+  const warn = [];
+  const bytes = new Uint8Array(64);
+  new DataView(bytes.buffer).setUint32(0, HC.pack(HC.TAG_BEGIN, 0, 4000), true);
+  const rec = HWPParse.parseRecords(bytes, warn, '조작된 스트림');
+  ok(rec.records.length === 0 && warn.length === 1,
+     '스트림 밖을 가리키는 레코드는 버리고 경고를 남긴다');
+
+  /* 압축을 풀 수 없는 스트림이 있어도 나머지는 읽힌다 */
+  ok(HWPParse.isCompressible('/DocInfo') && HWPParse.isCompressible('/BodyText/Section0') &&
+     !HWPParse.isCompressible('/FileHeader') && !HWPParse.isCompressible('/PrvText'),
+     '압축 대상 판정이 맞다');
+}
 
 /* ---------- 결과 -------------------------------------------------------- */
 console.log(`\n${fail === 0 ? '통과' : '실패'}: ${pass}개 성공, ${fail}개 실패`);

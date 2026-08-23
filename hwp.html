@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>레코드로 쓴 문서</title>
+<meta name="description" content="HWP 5.0 내부 구조를 진짜 바이트로 뜯어 보는 교육용 시각화">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap topbar-inner">
+    <span class="brand">HWP&nbsp;5.0 <b>구조 해부</b></span>
+    <nav class="topnav" aria-label="목차">
+      <a href="#layers">00 세 겹</a>
+      <a href="#header">01 FileHeader</a>
+      <a href="#streams">02 스트림</a>
+      <a href="#zip">03 압축</a>
+      <a href="#bits">04 레코드 머리</a>
+      <a href="#tree">05 레벨과 트리</a>
+      <a href="#anatomy">06 레코드 해부</a>
+      <a href="#text">07 글자 뽑기</a>
+      <a href="#read">08 읽기</a>
+      <a href="#real">09 실전</a>
+      <a href="#appendix">부록</a>
+    </nav>
+    <button class="iconbtn" id="theme" type="button">◐</button>
+  </div>
+  <div class="ribbon" id="ribbon" role="img" aria-label="현재 파일의 섹터 지도 요약"></div>
+</div>
+
+<!-- ================= 히어로 ================= -->
+<header class="hero">
+  <div class="wrap">
+    <p class="hero-eyebrow">한글 문서 파일 형식 5.0 · HWP Document File</p>
+    <h1>레코드로 쓴 <em>문서</em></h1>
+    <p class="hero-lead">
+      <code>.hwp</code> 파일을 바이너리로 열면 가장 먼저 <code>D0 CF 11 E0</code>이 나온다.
+      <strong>CFB 컴파운드 파일의 시그니처</strong>다. 즉 한글 파일의 바깥 껍데기는
+      <code>.doc</code>와 완전히 같다.
+    </p>
+    <p class="hero-lead" style="margin-top:1rem">
+      다른 것은 그 안에 있다. 한글은 스트림을 통째로 <strong>압축</strong>해 두고,
+      압축을 풀면 <strong>레코드</strong>라는 두 번째 구조가 나온다.
+      그리고 그 레코드들은 <strong>포인터 없이, 숫자 하나로만</strong> 트리를 이룬다.
+    </p>
+
+    <div class="hero-file">
+      <div class="panel-head">
+        <span class="panel-title" id="hero-name">샘플 문서.hwp</span>
+        <span class="chip" id="hero-stat"></span>
+        <div class="panel-tools">
+          <button class="btn" type="button" id="hero-toggle">압축 끄고 다시 만들기</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <p class="note" style="margin:0 0 .6rem">
+          본문 스트림 <code>BodyText/Section0</code>의 레코드 전부.
+          가로는 스트림 안 위치, 세로 칸은 <b>레벨</b>이다 — 위 칸이 아래 칸을 품는다.
+        </p>
+        <div id="hero-recmap"></div>
+      </div>
+      <div class="panel-foot" id="hero-detail"></div>
+    </div>
+
+    <p class="note" style="margin-top:1rem">
+      바깥 껍데기(섹터·FAT·디렉터리)가 어떻게 도는지는
+      <a href="https://claude.ai/code/artifact/0b992b64-71a7-4d80-b07c-604bb73d23c9">CFB 편</a>에서 다룬다.
+      이 페이지는 그 위에 한글이 얹은 것만 본다.
+    </p>
+  </div>
+</header>
+
+<main>
+
+<!-- ================= 0x00 세 겹 ================= -->
+<section class="chapter" id="layers">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x00</span>
+    <h2>세 겹의 상자</h2>
+    <p class="chapter-sub">한 바이트에 닿기까지 껍데기를 세 번 벗겨야 한다. 각 껍데기는 완전히 다른 규칙으로 만들어져 있다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      HWP 5.0을 읽는다는 것은 서로 다른 세 가지 형식을 차례로 통과한다는 뜻이다.
+      각 층은 아래층이 무엇인지 전혀 모른다 — 그저 바이트 뭉치를 넘겨줄 뿐이다.
+    </p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 880 330" role="img" aria-label="HWP 파일은 CFB 컨테이너 안에 압축된 스트림이 있고 그 안에 레코드가 이어져 있는 세 겹 구조다">
+      <defs><marker id="hw1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g font-family="IBM Plex Mono, monospace" font-size="11">
+        <rect x="0" y="24" width="880" height="86" rx="4" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="12" y="18" fill="currentColor" opacity=".7">1층 — CFB 컴파운드 파일 (.doc와 같은 껍데기)</text>
+        <rect x="14" y="40" width="90" height="26" rx="2" fill="var(--c-header)"/><text x="59" y="57" text-anchor="middle" fill="var(--paper)">헤더</text>
+        <rect x="108" y="40" width="60" height="26" rx="2" class="dia-fill-table"/><text x="138" y="57" text-anchor="middle" fill="#fff">FAT</text>
+        <rect x="172" y="40" width="90" height="26" rx="2" class="dia-fill-dir"/><text x="217" y="57" text-anchor="middle" fill="#fff">디렉터리</text>
+        <rect x="266" y="40" width="600" height="26" rx="2" class="dia-fill-data"/><text x="566" y="57" text-anchor="middle" fill="#fff">스트림들</text>
+        <text x="14" y="84" fill="currentColor" opacity=".7">섹터 · FAT 체인 · 레드-블랙 트리 · 미니 스트림</text>
+        <text x="14" y="100" fill="currentColor" opacity=".5">여기까지는 Word 97 문서와 한 글자도 다르지 않다</text>
+      </g>
+
+      <path d="M440,114 L440,134" stroke="currentColor" stroke-width="1.5" marker-end="url(#hw1)"/>
+      <text x="452" y="130" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">스트림 하나를 꺼낸다 (예: BodyText/Section0)</text>
+
+      <g font-family="IBM Plex Mono, monospace" font-size="11">
+        <rect x="0" y="142" width="880" height="66" rx="4" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="12" y="136" fill="currentColor" opacity=".7">2층 — raw DEFLATE 압축 (zlib 헤더도 검사값도 없다)</text>
+        <rect x="14" y="156" width="200" height="24" rx="2" class="dia-fill-data" opacity=".5"/>
+        <text x="114" y="172" text-anchor="middle" fill="currentColor">압축된 1,021바이트</text>
+        <path d="M222,168 L266,168" stroke="currentColor" stroke-width="1.5" marker-end="url(#hw1)"/>
+        <rect x="274" y="156" width="500" height="24" rx="2" class="dia-fill-data"/>
+        <text x="524" y="172" text-anchor="middle" fill="#fff">풀면 7,582바이트</text>
+        <text x="14" y="198" fill="currentColor" opacity=".5">FileHeader와 미리보기는 이 층을 건너뛴다 — 압축 여부를 FileHeader에서 읽어야 하니까</text>
+      </g>
+
+      <path d="M440,212 L440,232" stroke="currentColor" stroke-width="1.5" marker-end="url(#hw1)"/>
+
+      <g font-family="IBM Plex Mono, monospace" font-size="11">
+        <rect x="0" y="240" width="880" height="80" rx="4" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="12" y="234" fill="currentColor" opacity=".7">3층 — 레코드 (4바이트 머리 + 내용, 앞에서부터 죽 이어짐)</text>
+        <g>
+          <rect x="14" y="254" width="34" height="22" rx="2" class="dia-fill-dir"/><text x="31" y="269" text-anchor="middle" fill="#fff" font-size="9">머리</text>
+          <rect x="50" y="254" width="120" height="22" rx="2" fill="none" stroke="currentColor" stroke-dasharray="3 2"/><text x="110" y="269" text-anchor="middle" fill="currentColor" font-size="9">PARA_HEADER 24B</text>
+          <rect x="176" y="254" width="34" height="22" rx="2" class="dia-fill-dir"/><text x="193" y="269" text-anchor="middle" fill="#fff" font-size="9">머리</text>
+          <rect x="212" y="254" width="200" height="22" rx="2" fill="none" stroke="currentColor" stroke-dasharray="3 2"/><text x="312" y="269" text-anchor="middle" fill="currentColor" font-size="9">PARA_TEXT 96B</text>
+          <rect x="418" y="254" width="34" height="22" rx="2" class="dia-fill-dir"/><text x="435" y="269" text-anchor="middle" fill="#fff" font-size="9">머리</text>
+          <rect x="454" y="254" width="90" height="22" rx="2" fill="none" stroke="currentColor" stroke-dasharray="3 2"/><text x="499" y="269" text-anchor="middle" fill="currentColor" font-size="9">…CHAR_SHAPE 8B</text>
+          <rect x="550" y="254" width="60" height="22" rx="2" fill="none" stroke="currentColor" stroke-dasharray="3 2"/><text x="580" y="269" text-anchor="middle" fill="currentColor" opacity=".5" font-size="9">…</text>
+        </g>
+        <text x="14" y="292" fill="currentColor" opacity=".7">머리 4바이트 안에 태그 10비트 + 레벨 10비트 + 크기 12비트가 접혀 있다</text>
+        <text x="14" y="308" fill="currentColor" opacity=".5">목차도 색인도 없다. 앞에서부터 크기만큼 건너뛰며 읽는 수밖에 없다</text>
+      </g>
+    </svg>
+    <figcaption>세 층은 서로를 모른다. CFB는 자기가 든 것이 압축 데이터인지 모르고, 압축 층은 그것이 레코드인지 모른다. 층마다 규칙이 완전히 다르다.</figcaption>
+  </figure>
+
+  <div class="prose">
+    <div class="insight">
+      <div class="insight-label">이 페이지의 전제</div>
+      <p style="margin-bottom:0">
+        1층은 앞 편에서 이미 다뤘다. 섹터 번호를 오프셋으로 바꾸는 법, FAT 체인, 디렉터리의
+        레드-블랙 트리, 미니 스트림 — 전부 <code>.hwp</code>에도 그대로 적용된다.
+        <b>이 페이지는 2층과 3층만 본다.</b>
+      </p>
+    </div>
+
+    <h3>왜 이렇게 만들었나</h3>
+    <p>
+      CFB는 1993년 마이크로소프트가 "문서 안에 문서를 넣기" 위해 만든 것이다.
+      한글은 그 컨테이너를 가져다 쓰되, <b>내용을 담는 방식은 자기 것을 만들었다.</b>
+      CFB의 스트림은 이름표가 붙은 파일이라 개수가 늘어날수록 디렉터리가 커진다.
+      문단 하나, 글자 모양 하나까지 스트림으로 만들 수는 없다.
+    </p>
+    <p>
+      그래서 한글은 반대로 갔다. <b>스트림은 몇 개만 두고, 그 안에 수천 개의 작은 것을
+      이름 없이 번호만 붙여 이어 붙인다.</b> 그것이 레코드다.
+    </p>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x01 FileHeader ================= -->
+<section class="chapter" id="header">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x01</span>
+    <h2>FileHeader — 두 번째 서명</h2>
+    <p class="chapter-sub">파일에는 서명이 두 개 있다. 하나는 껍데기의 것이고, 하나는 내용물의 것이다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      CFB 컨테이너를 열면 루트 바로 아래 <code>FileHeader</code>라는 <b>정확히 256바이트</b>짜리
+      스트림이 있다. 그 첫 17바이트가 <code>HWP Document File</code>이고, 뒤는 0으로 채워 32바이트를 만든다.
+    </p>
+    <p>
+      이 스트림에서 가장 중요한 것은 <b>속성 4바이트</b>다.
+      압축되어 있는지, 암호가 걸렸는지, 배포용인지 — 나머지를 어떻게 읽어야 하는지가 여기서 정해진다.
+      그래서 <b>FileHeader만은 절대 압축하지도 암호화하지도 않는다.</b> 그럴 수가 없다.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">FileHeader 256바이트</span></div>
+    <div class="panel-body" id="hwp-header-panel"></div>
+    <div class="panel-foot">"Properties"를 눌러 보면 속성 비트 18개가 펼쳐진다. 히어로의 "압축 끄고 다시 만들기"를 누르면 0번 비트가 꺼지는 것을 볼 수 있다.</div>
+  </div>
+
+  <div class="prose">
+    <div class="insight trap">
+      <div class="insight-label">함정</div>
+      <p>
+        버전 4바이트는 <code>MM.nn.PP.rr</code>인데 리틀엔디언으로 저장된다.
+        그래서 <b>디스크에는 순서가 뒤집혀 적힌다</b> — 버전 5.0.3.0이라면
+        <code>00 03 00 05</code>로 보인다. hex 뷰에서 <code>05</code>가 마지막에 오는 것을 확인해 보자.
+      </p>
+      <p style="margin-bottom:0">
+        그리고 <code>+0x30</code>의 KOGL 국가 필드는 <b>DWORD가 아니라 1바이트</b>다.
+        4바이트로 읽으면 뒤따르는 예약 영역까지 먹는다.
+      </p>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x02 스트림 ================= -->
+<section class="chapter" id="streams">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x02</span>
+    <h2>스트림 구성 — 무엇이 어디에</h2>
+    <p class="chapter-sub">CFB 디렉터리에 보이는 이름들. 각각이 무엇이고, 압축되는지 아닌지.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">이 파일의 스트림</span></div>
+    <div class="panel-body">
+      <div id="hero-map" style="margin-bottom:1rem"></div>
+      <div id="hwp-stream-panel"></div>
+    </div>
+    <div class="panel-foot">위는 바깥 CFB의 섹터 지도다. 아래 표에서 줄을 누르면 그 스트림이 어느 섹터에 있는지 켜진다.</div>
+  </div>
+
+  <div class="prose">
+    <div class="insight">
+      <div class="insight-label">HWP 파일의 특징</div>
+      <p style="margin-bottom:0">
+        위 지도가 온통 "미니 스트림"인 것이 우연이 아니다. HWP는 <b>내용을 미리 압축해서</b> 넣기 때문에
+        스트림 하나하나가 작아지고, 4096바이트 미만이면 전부 미니 스트림으로 간다.
+        그래서 웬만한 한글 문서는 <b>FileHeader부터 본문까지가 미니 스트림 한 덩어리에 이어 붙어</b> 있다.
+        압축이 바깥 층의 배치까지 바꿔 놓은 셈이다. 히어로의 "압축 끄고 다시 만들기"를 눌러 보면
+        같은 문서가 일반 섹터로 흩어지는 것을 볼 수 있다.
+      </p>
+    </div>
+  </div>
+
+  <div class="prose">
+    <h3>몇 가지 규칙</h3>
+    <ul>
+      <li><b>구역 개수는 디렉터리를 세서 알아내지 않는다.</b> <code>DocInfo</code>의 첫 레코드인
+        <code>DOCUMENT_PROPERTIES</code>의 맨 앞 2바이트가 구역 수다.
+        <code>BodyText/Section0 … SectionN</code>은 그 수만큼 있어야 한다.</li>
+      <li><b>BinData 항목 이름은 <code>BIN</code> + 네 자리 대문자 16진수 + 확장자</b>다
+        (<code>BIN0001.png</code>, <code>BIN000A.jpg</code>). 명세 개요 표에 나오는
+        <code>BinaryData0</code> 같은 이름은 실제 파일에 없다.</li>
+      <li><code>PrvText</code>는 <b>평문 UTF-16LE</b>이고 BOM도 압축도 없다.
+        본문을 고치고 저장하지 않으면 <b>본문과 어긋난 채로 남을 수 있다.</b></li>
+      <li><code>\x05HwpSummaryInformation</code>은 Office의 속성 집합과 같은 형식이지만
+        <b>한글 전용 FMTID</b>를 쓴다. 그래서 일반 OLE 속성 도구로는 필드 이름이 제대로 안 나온다.</li>
+    </ul>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x03 압축 ================= -->
+<section class="chapter" id="zip">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x03</span>
+    <h2>압축 — 왜 컨테이너 안에서 또 압축하나</h2>
+    <p class="chapter-sub">CFB에는 압축이 없다. 그래서 한글이 직접 넣었다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      CFB는 1993년 설계다. 그 시절에는 압축을 컨테이너의 일로 보지 않았다 —
+      <b>CFB 자체에는 압축 기능이 아예 없다.</b> ZIP 기반인 <code>.docx</code>가
+      컨테이너 차원에서 모든 항목을 압축하는 것과 정반대다.
+    </p>
+    <p>
+      그래서 한글은 <b>스트림의 내용을 자기가 직접 압축해서</b> CFB에 넣는다.
+      쓰는 것은 <b>raw DEFLATE</b> — zlib 헤더(<code>78 9C</code> 같은 2바이트)도,
+      끝의 Adler-32 검사값도 없다. 파이썬으로 풀 때
+      <code>zlib.decompress(data, -15)</code>라고 쓰는 이유가 이것이다.
+      음수 15는 "zlib 껍데기 없이, 창 크기 2<sup>15</sup>로"라는 뜻이다.
+    </p>
+
+    <div class="insight trap">
+      <div class="insight-label">함정</div>
+      <p style="margin-bottom:0">
+        검사값이 없다는 것은 <b>압축을 잘못 풀어도 아무도 알려 주지 않는다</b>는 뜻이다.
+        스트림을 잘못 고르거나 오프셋이 하나 어긋나면, 예외 대신 그럴듯한 쓰레기가 나온다.
+        레코드 파서가 "태그 837, 크기 1048576" 같은 값을 뱉기 시작하면 대개 이 문제다.
+      </p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">압축 층 벗기기</span>
+      <div class="panel-tools"><span class="chip" id="zip-stat"></span></div>
+    </div>
+    <div class="panel-body" id="hwp-zip-panel"></div>
+    <div class="panel-foot">왼쪽이 CFB 스트림에 실제로 들어 있는 바이트, 오른쪽이 압축을 푼 결과다. 오른쪽에서만 레코드 머리가 보인다.</div>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x04 레코드 머리 ================= -->
+<section class="chapter" id="bits">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x04</span>
+    <h2>레코드 머리 — 4바이트에 접은 세 값</h2>
+    <p class="chapter-sub">이 페이지에서 딱 하나만 가져간다면 이것이다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      레코드는 <b>4바이트 머리 + 내용</b>이다. 그 4바이트를 리틀엔디언 32비트 정수로 읽으면
+      세 개의 값이 겹치지 않게 들어 있다:
+    </p>
+    <div class="readout" style="margin:1rem 0">태그 ID = 값 &amp; 0x3FF          비트  0–9   (10비트, 0–1023)
+레벨    = (값 &gt;&gt; 10) &amp; 0x3FF   비트 10–19  (10비트)
+크기    = (값 &gt;&gt; 20) &amp; 0xFFF   비트 20–31  (12비트, 0–4095)</div>
+    <p>
+      <code>10 + 10 + 12 = 32</code>. 한 비트도 남기지 않고 딱 맞춘 설계다.
+      아래에서 실제 파일의 레코드 머리를 비트 단위로 뜯어 볼 수 있고,
+      슬라이더로 직접 값을 만들어 볼 수도 있다.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">비트 쪼개기</span></div>
+    <div class="panel-body" id="hwp-bits-panel"></div>
+    <div class="panel-foot">색은 앞 편과 같은 뜻이다 — 주황은 "무엇인가"(태그), 파랑은 "어디에 속하는가"(레벨), 청록은 "얼마나"(크기).</div>
+  </div>
+
+  <div class="prose">
+    <div class="insight">
+      <div class="insight-label">크기가 12비트뿐이면</div>
+      <p>
+        한 레코드는 4095바이트를 넘을 수 없다. 그런데 긴 문단 하나가 그보다 클 수 있다.
+        그래서 <b>0xFFF(4095)를 "숫자"가 아니라 "신호"로 따로 빼 두었다.</b>
+        크기 자리가 0xFFF면 <b>머리 뒤에 4바이트가 하나 더 붙고</b>, 진짜 크기는 거기 들어 있다.
+      </p>
+      <p style="margin-bottom:0">
+        CFB의 <code>ENDOFCHAIN</code>·<code>FREESECT</code>와 같은 수법이다.
+        값의 범위 끝을 잘라내 신호로 쓰는 것 — 이진 형식이 자주 쓰는 손버릇이다.
+        위 패널에서 ★ 표시가 붙은 레코드를 골라 보자.
+      </p>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x05 레벨과 트리 ================= -->
+<section class="chapter" id="tree">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x05</span>
+    <h2>레벨 — 포인터 없이 세우는 트리</h2>
+    <p class="chapter-sub">CFB는 트리를 그려 두었다. HWP는 깊이만 적어 두고 읽는 쪽에 맡긴다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      앞 편에서 본 CFB 디렉터리는 엔트리마다 <code>left</code>·<code>right</code>·<code>child</code>
+      세 개의 번호를 두어 트리를 <b>명시적으로 그려</b> 두었다.
+      HWP 레코드에는 그런 포인터가 하나도 없다. 대신 <b>"내 깊이는 얼마"라는 숫자 하나</b>만 있다.
+    </p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 880 250" role="img" aria-label="CFB는 포인터로 트리를 그리고 HWP는 레벨 숫자와 순서로 트리를 암시한다">
+      <g font-family="IBM Plex Mono, monospace" font-size="11">
+        <text x="0" y="14" fill="currentColor" opacity=".7">CFB 디렉터리 — 포인터로 그린 트리</text>
+        <rect x="0" y="24" width="150" height="46" rx="3" class="dia-fill-dir"/>
+        <text x="75" y="42" text-anchor="middle" fill="#fff">"WordDocument"</text>
+        <text x="75" y="58" text-anchor="middle" fill="#fff" opacity=".85">L=3 R=5 C=없음</text>
+        <rect x="0" y="82" width="150" height="46" rx="3" class="dia-fill-dir" opacity=".6"/>
+        <text x="75" y="100" text-anchor="middle" fill="#fff">"Macros"</text>
+        <text x="75" y="116" text-anchor="middle" fill="#fff" opacity=".85">L=없음 R=없음 C=7</text>
+        <text x="0" y="152" fill="currentColor" opacity=".6">· 이름이 있다 (문자열)</text>
+        <text x="0" y="168" fill="currentColor" opacity=".6">· 순서를 바꿔도 트리는 그대로다</text>
+        <text x="0" y="184" fill="currentColor" opacity=".6">· 포인터가 깨지면 하위가 통째로 미아가 된다</text>
+        <text x="0" y="200" fill="currentColor" opacity=".6">· 이름으로 O(log n) 탐색이 가능하다</text>
+      </g>
+
+      <line x1="330" y1="10" x2="330" y2="220" stroke="currentColor" opacity=".2"/>
+
+      <g font-family="IBM Plex Mono, monospace" font-size="11">
+        <text x="360" y="14" fill="currentColor" opacity=".7">HWP 레코드 — 순서와 깊이로 암시한 트리</text>
+        <rect x="360" y="24" width="46" height="22" rx="2" class="dia-fill-table"/><text x="383" y="39" text-anchor="middle" fill="#fff">L0</text>
+        <text x="414" y="39" fill="currentColor">PARA_HEADER</text>
+        <rect x="380" y="50" width="46" height="22" rx="2" class="dia-fill-table"/><text x="403" y="65" text-anchor="middle" fill="#fff">L1</text>
+        <text x="434" y="65" fill="currentColor">PARA_TEXT</text>
+        <rect x="380" y="76" width="46" height="22" rx="2" class="dia-fill-table"/><text x="403" y="91" text-anchor="middle" fill="#fff">L1</text>
+        <text x="434" y="91" fill="currentColor">CTRL_HEADER</text>
+        <rect x="400" y="102" width="46" height="22" rx="2" class="dia-fill-table"/><text x="423" y="117" text-anchor="middle" fill="#fff">L2</text>
+        <text x="454" y="117" fill="currentColor">TABLE</text>
+        <rect x="400" y="128" width="46" height="22" rx="2" class="dia-fill-table"/><text x="423" y="143" text-anchor="middle" fill="#fff">L2</text>
+        <text x="454" y="143" fill="currentColor">LIST_HEADER</text>
+        <rect x="420" y="154" width="46" height="22" rx="2" class="dia-fill-table"/><text x="443" y="169" text-anchor="middle" fill="#fff">L3</text>
+        <text x="474" y="169" fill="currentColor">PARA_HEADER  ← 표 안의 문단</text>
+
+        <text x="360" y="200" fill="currentColor" opacity=".6">· 이름이 없다 (번호뿐)</text>
+        <text x="360" y="216" fill="currentColor" opacity=".6">· 순서가 곧 구조다 — 하나만 옮겨도 뜻이 달라진다</text>
+        <text x="360" y="232" fill="currentColor" opacity=".6">· 찾으려면 언제나 앞에서부터 전부 훑어야 한다</text>
+      </g>
+    </svg>
+    <figcaption>같은 "트리"라는 말을 쓰지만 만드는 방식이 정반대다. 한쪽은 어디에 무엇이 있는지 적어 두고, 다른 쪽은 순서대로 놓고 깊이만 표시한다.</figcaption>
+  </figure>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">레벨 숫자가 트리가 되는 순간</span></div>
+    <div class="panel-body" id="hwp-tree-panel"></div>
+  </div>
+
+  <div class="prose">
+    <div class="insight trap">
+      <div class="insight-label">대가</div>
+      <p style="margin-bottom:0">
+        레벨 방식은 저장 공간을 거의 쓰지 않는다 — 포인터 세 개(12바이트) 대신 10비트다.
+        대신 <b>임의 접근이 불가능하다.</b> "세 번째 문단"을 찾으려면 앞의 모든 레코드를
+        하나씩 지나가야 한다. 그리고 <b>레벨 하나가 틀어지면 그 뒤 구조 전체가 어긋난다</b> —
+        CFB에서 포인터 하나가 깨지면 그 가지만 잃는 것과 대조적이다.
+      </p>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x06 레코드 해부 ================= -->
+<section class="chapter" id="anatomy">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x06</span>
+    <h2>레코드 해부 — 이름 대신 번호</h2>
+    <p class="chapter-sub">글꼴도, 글자 모양도, 문단 모양도 전부 "몇 번째로 나왔는가"로 가리킨다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      <code>DocInfo</code>에는 문서 전체가 공유하는 정의들이 들어 있다.
+      글꼴 목록, 글자 모양 목록, 문단 모양 목록, 스타일 목록.
+      본문의 문단은 이것들을 <b>번호로</b> 가리킨다.
+    </p>
+    <div class="insight trap">
+      <div class="insight-label">가장 많이 틀리는 부분</div>
+      <p style="margin-bottom:0">
+        그 번호는 <b>레코드 안에 저장된 ID가 아니다.</b>
+        <code>CHAR_SHAPE</code> 레코드에는 자기 번호가 적혀 있지 않다.
+        <b>DocInfo에 나온 순서가 곧 번호다.</b> 0번째로 나온 CHAR_SHAPE가 0번,
+        그다음이 1번. 그래서 레코드 하나를 순서에서 빼면 <b>그 뒤 모든 참조가 한 칸씩 밀린다.</b>
+        <code>ID_MAPPINGS</code>가 개수를 미리 세어 두는 이유도 이것이다 — 배열 길이를 알아야 하니까.
+      </p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">레코드 목록과 내용</span></div>
+    <div class="panel-body" id="hwp-record-panel"></div>
+    <div class="panel-foot">왼쪽 목록의 들여쓰기가 레벨이다. 오른쪽 표의 줄을 누르면 그 필드의 바이트가 hex에서 강조된다.</div>
+  </div>
+
+  <div class="prose">
+    <h3>컨트롤 — 본문에 끼어드는 것들</h3>
+    <p>
+      표·그림·각주 같은 것은 문단 <em>안</em>에 들어간다. 방법은 이렇다:
+    </p>
+    <ol>
+      <li>문단 글자 사이에 <b>제어 문자</b>를 하나 박아 자리를 표시한다 (표라면 11번).</li>
+      <li>그 문단 아래 레벨에 <code>CTRL_HEADER</code> 레코드를 둔다.</li>
+      <li><code>CTRL_HEADER</code>의 첫 4바이트가 <b>네 글자짜리 ID</b>다 — 표는 <code>tbl&nbsp;</code>,
+        구역 정의는 <code>dces</code>, 그리기 개체는 <code>gso&nbsp;</code>.
+        <b>이 네 글자는 뒤집혀 저장</b>되어서 hex 뷰에는 <code>" lbt"</code>처럼 보인다.</li>
+      <li>그 아래로 <code>TABLE</code>, 그리고 칸마다 <code>LIST_HEADER</code>,
+        칸 안의 문단이 또 <code>PARA_HEADER</code>로 이어진다. 레벨이 이렇게 깊어진다.</li>
+    </ol>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x07 글자 뽑기 ================= -->
+<section class="chapter" id="text">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x07</span>
+    <h2>글자 뽑아내기 — 제어 문자라는 함정</h2>
+    <p class="chapter-sub">UTF-16으로 그냥 디코드하면 글자가 어긋난다. 어떤 제어 문자는 여덟 글자 자리를 차지한다.</p>
+  </div>
+
+  <div class="prose">
+    <p>
+      <code>PARA_TEXT</code> 레코드의 내용은 UTF-16LE 글자들이다.
+      그런데 그 사이에 <b>0–31번 제어 문자</b>가 섞여 있고, 종류에 따라 차지하는 자리가 다르다.
+    </p>
+    <ul>
+      <li><b>문자 컨트롤</b> (0, 10, 13, 24, 30, 31 …) — <b>1글자(2바이트)</b>. 탭·줄 나눔·묶음 빈칸 같은 것.</li>
+      <li><b>인라인 컨트롤</b> (4–9, 19, 20) — <b>8글자(16바이트)</b>.</li>
+      <li><b>확장 컨트롤</b> (1–3, 11, 12, 14–18, 21–23) — <b>8글자(16바이트)</b>.
+        표·그림·각주처럼 별도 레코드가 딸린 것들. <b>양 끝이 같은 제어 문자로 감싸인다.</b></li>
+    </ul>
+    <p>
+      즉 <code>11</code>번(표)을 만나면 그 자리부터 <b>16바이트를 통째로 건너뛰어야</b> 한다.
+      2바이트만 건너뛰면 그 뒤 글자가 전부 반 칸씩 밀려 깨진다.
+    </p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 880 150" role="img" aria-label="확장 제어 문자는 본문 텍스트에서 여덟 글자 자리를 차지하며 양 끝이 같은 코드로 감싸인다">
+      <g font-family="IBM Plex Mono, monospace" font-size="11">
+        <text x="0" y="14" fill="currentColor" opacity=".7">PARA_TEXT 안의 WCHAR 자리들 (한 칸 = 2바이트)</text>
+        <g>
+          <rect x="0" y="26" width="42" height="30" rx="2" class="dia-fill-surface" stroke="currentColor"/><text x="21" y="46" text-anchor="middle" fill="currentColor">한</text>
+          <rect x="44" y="26" width="42" height="30" rx="2" class="dia-fill-surface" stroke="currentColor"/><text x="65" y="46" text-anchor="middle" fill="currentColor">글</text>
+          <rect x="88" y="26" width="42" height="30" rx="2" class="dia-fill-surface" stroke="currentColor"/><text x="109" y="46" text-anchor="middle" fill="currentColor">표</text>
+          <rect x="132" y="26" width="42" height="30" rx="2" class="dia-fill-dir"/><text x="153" y="46" text-anchor="middle" fill="#fff" font-size="10">11</text>
+          <rect x="176" y="26" width="264" height="30" rx="2" class="dia-fill-dir" opacity=".35"/>
+          <text x="308" y="46" text-anchor="middle" fill="currentColor" font-size="10">컨트롤 정보 6글자 (12바이트)</text>
+          <rect x="442" y="26" width="42" height="30" rx="2" class="dia-fill-dir"/><text x="463" y="46" text-anchor="middle" fill="#fff" font-size="10">11</text>
+          <rect x="486" y="26" width="42" height="30" rx="2" class="dia-fill-surface" stroke="currentColor"/><text x="507" y="46" text-anchor="middle" fill="currentColor">입</text>
+          <rect x="530" y="26" width="42" height="30" rx="2" class="dia-fill-surface" stroke="currentColor"/><text x="551" y="46" text-anchor="middle" fill="currentColor">니</text>
+          <rect x="574" y="26" width="42" height="30" rx="2" class="dia-fill-surface" stroke="currentColor"/><text x="595" y="46" text-anchor="middle" fill="currentColor">다</text>
+        </g>
+        <path d="M132,62 L132,74 L484,74 L484,62" stroke="currentColor" stroke-width="1.4" fill="none"/>
+        <text x="308" y="90" text-anchor="middle" fill="currentColor">여덟 자리 = 16바이트를 한 덩어리로 건너뛴다</text>
+        <text x="308" y="106" text-anchor="middle" fill="currentColor" opacity=".65">양 끝이 같은 11번으로 닫혀 있어, 제대로 건너뛰었는지 확인할 수 있다</text>
+        <text x="0" y="134" fill="currentColor" opacity=".6">2바이트만 건너뛰면 그다음 글자부터 전부 반 칸씩 밀려 깨진다 — HWP 텍스트 추출기가 가장 자주 틀리는 자리</text>
+      </g>
+    </svg>
+    <figcaption>확장 컨트롤은 본문 안에 자리만 잡아 두고, 실제 내용(표의 행·열, 칸 안의 문단들)은 아래 레벨의 별도 레코드에 있다.</figcaption>
+  </figure>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">문단 하나를 조각내 보기</span></div>
+    <div class="panel-body" id="hwp-text-panel"></div>
+    <div class="panel-foot">주황색 조각이 여덟 자리를 차지하는 컨트롤이다. 표가 든 문단을 골라 보면 글자는 없고 컨트롤만 있는 것을 볼 수 있다.</div>
+  </div>
+
+  <div class="prose">
+    <div class="insight trap">
+      <div class="insight-label">지름길의 함정</div>
+      <p style="margin-bottom:0">
+        <code>PrvText</code> 스트림에는 미리보기용 평문이 이미 들어 있다. 압축도 안 되어 있어
+        그냥 UTF-16으로 읽으면 된다. 편해 보이지만 <b>본문 전체가 아니고, 표 안의 글자는 빠지며,
+        본문을 고친 뒤 갱신되지 않았을 수도 있다.</b> 검색 색인용으로는 쓸 만하지만
+        "이 문서의 내용"이라고 부르면 안 된다.
+      </p>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x08 읽기 ================= -->
+<section class="chapter" id="read">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x08</span>
+    <h2>읽기 — 처음부터 끝까지</h2>
+    <p class="chapter-sub">이 페이지의 파서가 실제로 밟은 여덟 단계.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">읽기 워크스루</span></div>
+    <div class="panel-body" id="hwp-walk-panel"></div>
+  </div>
+
+  <div class="prose">
+    <div class="insight">
+      <div class="insight-label">쓸 때는 반대로</div>
+      <p style="margin-bottom:0">
+        레코드를 이어 붙여 스트림을 만들고 → raw deflate로 압축하고 → CFB 스트림으로 넣는다.
+        <b>이 페이지의 샘플 파일도 정확히 그 순서로 만들어졌다.</b>
+        압축은 브라우저 안에서 직접 구현한 DEFLATE로 하고, 그 결과를 표준 zlib으로 풀 수 있는지까지 검증했다.
+      </p>
+    </div>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 0x09 실전 ================= -->
+<section class="chapter" id="real">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x09</span>
+    <h2>실전 — 내 .hwp 열어 보기</h2>
+    <p class="chapter-sub">그리고 이 구조가 보안에서 왜 문제가 되는가.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">HWP 파일 열기</span>
+      <div class="panel-tools"><button class="btn" type="button" id="back-to-sample">샘플로 돌아가기</button></div>
+    </div>
+    <div class="panel-body" id="hwp-file-loader"></div>
+  </div>
+
+  <div class="prose">
+    <h3>배포용 문서</h3>
+    <p>
+      "배포용 문서"로 저장하면 속성 2번 비트가 켜지고, <code>BodyText</code> 대신
+      <code>ViewText</code>가 들어간다. <code>ViewText/SectionN</code>은 암호화되어 있고,
+      그 앞에 <code>DISTRIBUTE_DOC_DATA</code> 레코드가 <b>평문으로</b> 붙는다.
+    </p>
+    <p>
+      복호화에 필요한 것이 <b>그 평문 레코드 안에 들어 있다.</b>
+      즉 이것은 암호라기보다 <b>자물쇠와 열쇠를 같은 상자에 넣어 둔 것</b>에 가깝다.
+      편집을 막는 장치이지 내용을 지키는 장치가 아니다.
+    </p>
+
+    <h3>왜 HWP가 표적이 되는가</h3>
+    <ul>
+      <li><b>사용처가 명확하다.</b> 한국 정부·공공기관·교육기관이 사실상 표준으로 쓴다.
+        받는 사람이 열 수밖에 없는 문서 형식이라는 것 자체가 공격자에게 값어치다.</li>
+      <li><b>파서가 넓다.</b> CFB 층, DEFLATE 층, 레코드 층 — 검증할 곳이 세 겹이다.
+        레코드 크기 하나만 조작해도 파서를 스트림 밖으로 보낼 수 있다.</li>
+      <li><b>숨을 곳이 많다.</b> <code>BinData</code>에 들어간 OLE 개체,
+        <code>Scripts</code>의 자바스크립트, <code>BinData</code>에 든 EPS/PostScript —
+        전부 본문과 무관하게 실행 경로를 가질 수 있는 자리다.</li>
+      <li><b>지운 것이 남는다.</b> 바깥이 CFB이므로 앞 편에서 본 것이 그대로 적용된다.
+        지운 스트림의 바이트는 빈 섹터에 남고, <code>DocHistory</code>에는 예전 판본이 통째로 있을 수 있다.</li>
+    </ul>
+    <p class="note">
+      분석 도구는 대개 이 세 층을 그대로 벗긴다 — CFB를 열고, 스트림을 풀고, 레코드를 훑는다.
+      구조를 알면 도구가 무엇을 하는지 안다.
+    </p>
+
+    <h3>HWPX는 무엇인가</h3>
+    <p>
+      <code>.hwpx</code>는 ZIP 안에 XML을 넣는 <b>OWPML</b> 형식이고, 한국 국가표준
+      <b>KS X 6101</b>이다. <code>.doc</code>→<code>.docx</code>와 비슷한 전환이지만
+      한 가지가 다르다: <b>OOXML은 마이크로소프트가 밀어붙였고, HWPX는 개방형 문서 정책이 밀었다.</b>
+      그래서 실무에서는 아직 <code>.hwp</code>가 압도적으로 많고, 두 형식이 오래 공존하고 있다.
+    </p>
+  </div>
+ </div>
+</section>
+
+<!-- ================= 부록 ================= -->
+<section class="chapter" id="appendix">
+ <div class="wrap">
+  <div class="chapter-head">
+    <span class="chapter-num">0x0A</span>
+    <h2>부록</h2>
+  </div>
+
+  <div class="split a">
+    <div>
+      <h3 style="font-family:var(--font-display);font-size:1.05rem;margin:0 0 .8rem">상수</h3>
+      <dl class="kv">
+        <dt>시그니처</dt><dd>"HWP Document File" + NUL 15개 (32바이트)</dd>
+        <dt>FileHeader</dt><dd>256바이트, 압축·암호화 안 함</dd>
+        <dt>버전 위치</dt><dd>+0x20, MM.nn.PP.rr 리틀엔디언</dd>
+        <dt>속성 위치</dt><dd>+0x24, 비트 0–17 정의됨</dd>
+        <dt>KOGL 국가</dt><dd>+0x30, <b>1바이트</b> (6=한국, 15=미국)</dd>
+        <dt>압축</dt><dd>raw DEFLATE (zlib 헤더·검사값 없음)</dd>
+        <dt>레코드 머리</dt><dd>4바이트 = 태그 10 + 레벨 10 + 크기 12</dd>
+        <dt>크기 한계</dt><dd>4095바이트, 0xFFF면 뒤에 4바이트 추가</dd>
+        <dt>태그 시작</dt><dd>HWPTAG_BEGIN = 0x010</dd>
+        <dt>BinData 이름</dt><dd>BIN + 대문자 16진수 4자리 + 확장자</dd>
+        <dt>구역 개수</dt><dd>DOCUMENT_PROPERTIES의 첫 UINT16</dd>
+        <dt>본문 인코딩</dt><dd>UTF-16LE</dd>
+      </dl>
+    </div>
+    <div>
+      <h3 style="font-family:var(--font-display);font-size:1.05rem;margin:0 0 .8rem">구현할 때 넘어지는 지점</h3>
+      <ol style="padding-left:1.2rem;font-size:.9rem;line-height:1.8">
+        <li>zlib 헤더가 있다고 가정 — <b>raw deflate</b>다 (<code>-15</code>).</li>
+        <li>제어 문자를 전부 1글자로 셈 — 확장·인라인은 <b>8글자</b>다.</li>
+        <li>크기 0xFFF를 그냥 4095로 읽음 — <b>확장 헤더 신호</b>다.</li>
+        <li>CHAR_SHAPE 안에서 자기 ID를 찾음 — <b>등장 순서가 곧 번호</b>다.</li>
+        <li>구역 개수를 CFB 디렉터리에서 셈 — <b>DOCUMENT_PROPERTIES</b>에 있다.</li>
+        <li>버전 바이트를 그대로 읽음 — <b>리틀엔디언이라 뒤집혀</b> 있다.</li>
+        <li>KOGL 국가를 4바이트로 읽음 — <b>1바이트</b>다.</li>
+        <li>CTRL_HEADER의 네 글자를 그대로 읽음 — <b>뒤집혀</b> 저장된다.</li>
+        <li>FileHeader도 압축했다고 가정 — <b>절대 압축하지 않는다</b>.</li>
+        <li>PrvText를 본문으로 사용 — 잘려 있고 오래됐을 수 있다.</li>
+        <li>배포용 문서에서 BodyText를 찾음 — <b>ViewText</b>에 있다.</li>
+        <li>레코드 크기를 검증하지 않음 — 조작된 값이 스트림 밖을 가리킬 수 있다.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="prose" style="margin-top:2rem">
+    <h3>더 읽을거리</h3>
+    <ul>
+      <li><b>한글문서파일형식 5.0</b> — 한컴이 공개한 명세. 이 페이지의 모든 숫자의 출처다.</li>
+      <li><b>pyhwp</b> (Python), <b>hwp.js</b> (TypeScript 뷰어), <b>hwplib</b> (Java) — 읽기 좋은 구현들.</li>
+      <li><b>KS X 6101</b> — HWPX/OWPML 국가표준.</li>
+      <li><a href="https://claude.ai/code/artifact/0b992b64-71a7-4d80-b07c-604bb73d23c9">CFB 편</a> — 이 파일의 바깥 껍데기.</li>
+    </ul>
+  </div>
+ </div>
+</section>
+
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>
+      이 페이지의 샘플 <code>.hwp</code>는 브라우저에서 즉석으로 만들어진 <b>실제 바이트</b>다.
+      레코드를 이어 붙이고, 직접 구현한 DEFLATE로 압축하고, CFB 컨테이너에 넣은 것이다.
+      끌어다 놓은 파일은 어디에도 전송되지 않는다.
+    </p>
+    <p class="note">교육용 자료 · 출처는 한컴 공개 명세와 주요 오픈소스 구현들.</p>
+  </div>
+</footer>
+
+<script src="src/cfb-const.js"></script>
+<script src="src/rbtree.js"></script>
+<script src="src/cfb-build.js"></script>
+<script src="src/cfb-parse.js"></script>
+<script src="src/cfb-ops.js"></script>
+<script src="src/inflate.js"></script>
+<script src="src/hwp-const.js"></script>
+<script src="src/hwp-build.js"></script>
+<script src="src/hwp-parse.js"></script>
+<script src="src/ui-core.js"></script>
+<script src="src/ui-hex.js"></script>
+<script src="src/ui-map.js"></script>
+<script src="src/ui-story.js"></script>
+<script src="src/ui-hwp.js"></script>
+<script src="src/main-hwp.js"></script>
+</body>
+</html>

@@ -124,6 +124,7 @@
         size: node.size || 0,
         magic: node.magic || null,
         utf16: node.utf16 || null,
+        given: node.content || null,     /* 이미 만들어진 내용을 그대로 넣을 때 */
         note: node.note || '',
         childSpecs: node.children || [],
         parentSid: parentSid,
@@ -182,7 +183,9 @@
       var label = e.name.replace(/[\u0000-\u001f]/g, function (c) {
         return '\\x0' + c.charCodeAt(0).toString(16);
       });
-      e.content = makeContent(label, e.size, e.magic, e.utf16);
+      /* 내용을 직접 넘겨받았으면 그것을 쓰고, 아니면 자기설명 채움을 만든다 */
+      e.content = e.given || makeContent(label, e.size, e.magic, e.utf16);
+      e.size = e.content.length;
       e.isMini = e.size > 0 && e.size < CUTOFF;
       plan.decisions.push({
         sid: e.sid, name: e.name, size: e.size, mini: e.isMini,
