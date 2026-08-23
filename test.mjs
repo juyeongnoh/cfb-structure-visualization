@@ -125,6 +125,61 @@ for (const major of [3, 4]) {
      `v${major}: WordDocument 내용과 FIB 서명`);
 }
 
+/* ---------- 1b. 편집된 샘플 — 교재로서 갖춰야 할 성질 ------------------- */
+section('편집된 샘플 문서 (페이지가 실제로 보여 주는 파일)');
+{
+  const r = CFBBuild.composeEdited({ timestamp: Date.UTC(2003, 3, 15, 9, 30, 0) });
+  const p = CFBParse.parse(r.bytes);
+  invariants(p, '편집된 샘플');
+  ok(r.history.length >= 5, `편집 이력 ${r.history.length}단계`);
+  ok(p.totalSectors <= 60, `한 화면에 들어오는 크기 (${p.totalSectors}섹터)`);
+
+  /* 체인이 "범위"가 아니라 "연결 리스트"임을 보여 주려면 앞뒤로 튀어야 한다 */
+  const jumpy = p.live.filter((e) => {
+    if (e.type !== C.TYPE_STREAM || !e.chain || e.chain.length < 2) return false;
+    return e.chain.some((s, i) => i > 0 && s !== e.chain[i - 1] + 1);
+  });
+  ok(jumpy.length >= 1, '앞뒤로 튀는 일반 스트림 체인이 있다 — ' +
+     jumpy.map((e) => e.name + ':' + e.chain.join(',')).join(' | '));
+
+  const splitMini = p.live.filter((e) => {
+    if (!e.isMini || !e.miniChain || e.miniChain.length < 2) return false;
+    return e.miniChain.some((m, i) => i > 0 && m !== e.miniChain[i - 1] + 1);
+  });
+  ok(splitMini.length >= 1, '가운데가 끊긴 미니 스트림 체인이 있다 — ' +
+     splitMini.map((e) => e.name).join(', '));
+
+  const cont = p.miniStreamSectors;
+  ok(cont.length >= 2 && cont.some((s, i) => i > 0 && s !== cont[i - 1] + 1),
+     '미니 스트림을 담는 그릇 자체도 흩어져 있다 — ' + cont.join(','));
+
+  /* 지운 데이터가 빈 섹터에 남아 있어야 8장의 주장이 시연이 된다 */
+  const free = p.roles.map((x, i) => (x === 'free' ? i : -1)).filter((i) => i >= 0);
+  ok(free.length >= 1, `빈 섹터가 남아 있다 (${free.length}개)`);
+  const ghost = Array.from(p.bytes.slice(p.sectOff(free[0]), p.sectOff(free[0]) + 48))
+    .map((b) => String.fromCharCode(b)).join('');
+  ok(/SummaryInformation|1Table|Data|WordDocument/.test(ghost),
+     '빈 섹터에 지워진 스트림의 바이트가 그대로 남아 있다 — ' + JSON.stringify(ghost.slice(0, 40)));
+
+  /* 마지막 섹터의 남는 자리에 이전 세입자의 흔적 */
+  const withSlack = p.live.filter((e) => e.type === C.TYPE_STREAM && !e.isMini && e.size % p.sectorSize !== 0);
+  const tenant = withSlack.filter((e) => {
+    const lastSect = e.chain[e.chain.length - 1];
+    const from = p.sectOff(lastSect) + (e.size % p.sectorSize);
+    const tail = Array.from(p.bytes.slice(from, from + 64)).map((b) => String.fromCharCode(b)).join('');
+    return /\+0x[0-9A-F]{6}\]/.test(tail);
+  });
+  ok(tenant.length >= 1, '살아 있는 스트림의 마지막 섹터 남는 자리에 이전 데이터가 보인다 — ' +
+     tenant.map((e) => e.name).join(', '));
+
+  /* 디렉터리 마지막 섹터에 미할당 칸이 남아야 objType 0 을 볼 수 있다 */
+  ok(p.entries.length > p.live.length, '디렉터리에 미할당(objType 0) 칸이 있다');
+
+  /* 편집을 거쳐도 내용은 온전해야 한다 */
+  const wd = p.readStream(p.byPath['/WordDocument']);
+  ok(wd.length === p.byPath['/WordDocument'].size, '편집 뒤에도 본문을 정확한 길이로 읽는다');
+}
+
 /* ---------- 2. 편집 연산 ---------------------------------------------- */
 section('편집: 삭제 → 추가 → 크기 변경 → 조각 모음');
 let bytes = CFBBuild.compose({}).bytes;

@@ -218,6 +218,7 @@
     var packB = el('button', { class: 'btn', type: 'button', text: '조각 모음(다시 저장)' });
     var undoB = el('button', { class: 'btn', type: 'button', text: '원래대로' });
     var ghostB = el('button', { class: 'btn', type: 'button', text: '👻 지운 데이터 들춰보기' });
+    var breakB = el('button', { class: 'btn danger', type: 'button', text: '⟲ 체인에 순환 만들기' });
     var mapHost = el('div', { style: { marginTop: '.8rem' } });
     var logEl = el('div', { class: 'readout', style: { marginTop: '.8rem', maxHeight: '17rem', overflowY: 'auto' } });
     var statEl = el('div', { class: 'pill-row', style: { marginTop: '.6rem' } });
@@ -226,7 +227,7 @@
       [el('span', { class: 'note', text: '대상' }), target, delB, growB,
        el('span', { class: 'note', style: { marginLeft: '.4rem' }, text: '크기' }), sizeIn, addB]));
     node.appendChild(el('div', { class: 'panel-tools', style: { marginLeft: 0, marginTop: '.4rem' } },
-      [packB, ghostB, undoB]));
+      [packB, ghostB, breakB, undoB]));
     node.appendChild(statEl);
     node.appendChild(mapHost);
     node.appendChild(logEl);
@@ -351,6 +352,56 @@
       logEl.textContent = lines.join('\n');
       ghostSectors = free;
       map.render(cur, { ghosts: ghostSectors });
+    };
+
+    /* 순환하는 체인을 손으로 만들어 넣는다.
+     * "무한 루프에 빠진다"는 경고는 읽고 흘리기 쉽다. 직접 망가뜨려 보고
+     * 파서가 어떻게 살아남는지 보는 편이 훨씬 오래 남는다. */
+    breakB.onclick = function () {
+      var e = cur.live.filter(function (x) {
+        return x.type === C.TYPE_STREAM && !x.isMini && x.chain && x.chain.length >= 3;
+      })[0];
+      if (!e) { logEl.textContent = '섹터를 세 개 이상 쓰는 일반 스트림이 없다.'; return; }
+      var bytes = cur.bytes.slice();
+      var per = cur.sectorSize / 4;
+      var victim = e.chain[e.chain.length - 2];
+      var fatSect = cur.difat[Math.floor(victim / per)];
+      var off = cur.sectOff(fatSect) + (victim % per) * 4;
+      var before = cur.fat[victim] >>> 0;
+      new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        .setUint32(off, e.chain[0], true);
+
+      var p = root.CFBParse.parse(bytes);
+      var lines = [];
+      lines.push('"' + e.displayPath + '"의 체인을 손으로 망가뜨렸다.');
+      lines.push('');
+      lines.push('바꾼 곳: FAT[' + victim + '] — FAT 섹터 ' + fatSect + '의 파일 오프셋 ' + U.hex(off, 6));
+      lines.push('  ' + U.sect(before) + '  →  ' + e.chain[0] + '   (체인의 첫 섹터를 다시 가리키게 했다)');
+      lines.push('');
+      lines.push('이제 체인은 ' + e.chain.slice(0, -1).join(' → ') + ' → ' + e.chain[0] + ' → … 로 영원히 돈다.');
+      lines.push('순진한 while 루프라면 여기서 멈추지 않는다.');
+      lines.push('');
+      if (p.ok) {
+        var e2 = p.byPath[e.path];
+        lines.push('파서가 살아남은 이유: 이미 지나온 섹터를 Set에 담아 두고,');
+        lines.push('두 번째로 만나면 그 자리에서 멈춘다.');
+        lines.push('');
+        lines.push('파서가 남긴 경고:');
+        (p.warn.length ? p.warn : ['(없음)']).forEach(function (w) { lines.push('  ⚠ ' + w); });
+        if (e2) {
+          lines.push('');
+          lines.push('그 결과 "' + e2.displayPath + '"은 ' + (e2.chain || []).length + '섹터까지만 읽힌다 ' +
+                     '(원래 ' + e.chain.length + '섹터). 손상은 감췄지만 사라지지는 않았다.');
+        }
+        cur = p;
+        ghostSectors = [];
+        repaint();
+        U.select({ sectors: e2 ? e2.chain : [], current: victim, focus: off,
+                   ranges: [{ start: off, len: 4, tone: 1 }] });
+      } else {
+        lines.push('파서가 파일을 거부했다: ' + p.error);
+      }
+      logEl.textContent = lines.join('\n');
     };
 
     function render(p) {

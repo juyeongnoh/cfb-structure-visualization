@@ -370,5 +370,71 @@
     };
   }
 
-  root.CFBBuild = { compose: compose, sampleSpec: sampleSpec, filetime: filetime, makeContent: makeContent };
+  /* ---------- 편집된 샘플 --------------------------------------------
+   * 갓 만들어 낸 파일은 모든 체인이 0, 1, 2, 3 … 으로 이어져 있어서
+   * 보기에는 좋지만 거짓말을 가르친다. FAT이 "범위"가 아니라 "연결
+   * 리스트"라는 사실은 체인이 앞뒤로 튈 때에만 드러난다.
+   *
+   * 그래서 샘플 문서는 한 번 편집하고 저장한 상태로 만든다.
+   * 실제 파일이 대개 그렇다. 지우고 다시 넣는 과정에서 생기는 것들:
+   *   · 앞뒤로 튀는 스트림 체인
+   *   · 중간에 구멍이 뚫린 미니 스트림 체인
+   *   · 미니 스트림 담는 그릇 자체도 흩어진다
+   *   · 아무도 안 쓰는 빈 섹터에 옛 데이터가 그대로 남는다
+   *   · 마지막 섹터의 남는 자리에 이전 세입자의 흔적이 남는다
+   * ------------------------------------------------------------------ */
+  function composeEdited(opts) {
+    opts = opts || {};
+    var built = compose(opts);
+    if (!root.CFBParse || !root.CFBOps) return built;   // 편집 모듈이 없으면 그대로
+
+    var history = [];
+    var bytes = built.bytes;
+    function step(label, fn) {
+      var p = root.CFBParse.parse(bytes);
+      if (!p.ok) return;
+      var m = root.CFBOps.toModel(p);
+      fn(m, p);
+      bytes = root.CFBOps.serialize(m);
+      history.push(label);
+    }
+    function sidOf(p, path) { return p.byPath[path] ? p.byPath[path].sid : -1; }
+
+    /* 1) 본문을 줄여 다시 쓴다 → 뒤쪽에 구멍이 남는다 */
+    step('본문을 줄여 저장', function (m, p) {
+      root.CFBOps.resizeStream(m, sidOf(p, '/WordDocument'), 6000);
+    });
+    /* 2) 속성 집합을 지운다 → 파일 뒤쪽에 두 번째 구멍 */
+    step('속성 집합 삭제', function (m, p) {
+      root.CFBOps.deleteStream(m, sidOf(p, '/\u0005SummaryInformation'));
+    });
+    /* 3) 속성 집합을 조금 크게 다시 쓴다 → 두 구멍에 걸쳐 앉으며 체인이 튄다 */
+    step('속성 집합 다시 저장', function (m, p) {
+      root.CFBOps.addStream(m, 0, '\u0005SummaryInformation',
+        makeContent('\\x05SummaryInformation', 4200, [0xfe, 0xff, 0x00, 0x00]));
+    });
+    /* 4) 미니 스트림 두 개를 지운다 → 미니 스트림 가운데가 뚫린다 */
+    step('그림 데이터 삭제', function (m, p) {
+      root.CFBOps.deleteStream(m, sidOf(p, '/Data'));
+    });
+    step('매크로 설정 삭제', function (m, p) {
+      root.CFBOps.deleteStream(m, sidOf(p, '/Macros/PROJECT'));
+    });
+    /* 5) 더 큰 그림을 넣는다 → 뚫린 자리들을 주워 담고도 모자라
+     *    미니 스트림이 커지고, 담는 그릇도 흩어진 자리에 붙는다 */
+    step('더 큰 그림 삽입', function (m, p) {
+      root.CFBOps.addStream(m, 0, 'Data', makeContent('Data', 2900, null));
+    });
+    step('매크로 설정 다시 저장', function (m, p) {
+      var mac = sidOf(p, '/Macros');
+      root.CFBOps.addStream(m, mac, 'PROJECT', makeContent('PROJECT', 380, null));
+    });
+
+    return { bytes: bytes, plan: built.plan, history: history };
+  }
+
+  root.CFBBuild = {
+    compose: compose, composeEdited: composeEdited,
+    sampleSpec: sampleSpec, filetime: filetime, makeContent: makeContent
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -575,6 +575,9 @@ footer.site a { color: var(--ink-2); }
     <p class="hero-lead" style="margin-top:1rem">
       아래 그림은 이 페이지가 <strong>브라우저에서 방금 만들어 낸 진짜 CFB 파일</strong>이다.
       칸 하나가 512바이트 섹터 하나다. 눌러 보면 실제 바이트가 나온다.
+      갓 만든 깨끗한 파일이 아니라 <strong>몇 번 편집하고 저장한 뒤의 상태</strong>로 만들었다 —
+      그래야 체인이 앞뒤로 튀고, 미니 스트림 가운데가 뚫리고, 아무도 안 쓰는 섹터에 옛 데이터가 남는
+      <strong>실제 파일의 모습</strong>이 나오기 때문이다.
     </p>
 
     <div class="hero-file">
@@ -874,6 +877,21 @@ footer.site a { color: var(--ink-2); }
 
   <div class="prose">
     <div class="insight">
+      <div class="insight-label">이 포맷 전체를 요약하는 한 문장</div>
+      <p>
+        <b>디렉터리는 "어디서 시작하고 얼마나 긴지"를 말하고, FAT은 "다음이 어디인지"를 말한다.
+        둘 중 하나만으로는 한 바이트도 읽을 수 없다.</b>
+      </p>
+      <p style="margin-bottom:0">
+        이름과 길이는 한쪽에, 자리 배치는 다른 쪽에 나누어 둔 것 —
+        이게 CFB의 구조적 핵심이고, 유닉스의 inode와 블록 비트맵, FAT32의 디렉터리 엔트리와
+        FAT이 하는 것과 똑같은 분업이다. 이 문장을 쥐고 있으면 나머지는 대부분 복원할 수 있다.
+        <br>따라오는 결과: <b>체인의 길이와 선언된 크기는 서로 독립된 두 사실이라 반드시 일치해야 한다.</b>
+        이 중복이 곧 손상 사례의 절반이 나오는 자리다.
+      </p>
+    </div>
+
+    <div class="insight">
       <div class="insight-label">자기서술</div>
       <p>
         FAT은 <b>자기 자신도 설명한다.</b> FAT이 들어 있는 섹터는 FAT 안에서 <code>FATSECT</code>로 표시된다.
@@ -965,6 +983,28 @@ footer.site a { color: var(--ink-2); }
   </div>
 
   <div class="prose">
+    <h3>v4가 생긴 진짜 이유</h3>
+    <p>
+      v4를 "더 큰 파일을 담기 위한 버전"으로만 설명하면 절반만 맞다.
+      더 중요한 것은 <b>체인을 따라가는 비용</b>이다. 체인은 연결 리스트이므로
+      스트림의 마지막 바이트에 닿으려면 처음부터 한 칸씩 세어 가야 한다.
+    </p>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>100 MB 스트림의 끝에 닿으려면</th><th class="num">따라가야 할 칸</th><th class="num">FAT이 차지할 메모리</th></tr></thead>
+        <tbody>
+          <tr><td>v3 — 512바이트 섹터</td><td class="mono num">204,800회</td><td class="mono num">800 KiB</td></tr>
+          <tr><td>v4 — 4096바이트 섹터</td><td class="mono num">25,600회</td><td class="mono num">100 KiB</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      섹터를 여덟 배로 키우면 체인 길이도, FAT의 크기도 여덟 분의 일이 된다.
+      거의 모든 구현이 <b>FAT 전체를 메모리에 올려놓고</b> 시작하기 때문에 두 번째 열도 그냥 넘길 수 없다 —
+      FAT은 섹터당 4바이트, 즉 <b>파일 크기의 0.78%</b>다. 2 GB짜리 v3 파일이라면
+      한 바이트를 읽기 전에 16 MiB를 먼저 읽어야 한다.
+    </p>
+
     <div class="insight">
       <div class="insight-label">왜 하필 109인가</div>
       <p>
@@ -1070,6 +1110,17 @@ footer.site a { color: var(--ink-2); }
   </div>
 
   <div class="prose">
+    <div class="insight">
+      <div class="insight-label">따라오는 결과</div>
+      <p style="margin-bottom:0">
+        이름이 곧 <b>정렬 키</b>이기 때문에, <b>스트림의 이름을 바꾸는 것은 필드 하나를 고치는 일이 아니다.</b>
+        트리에서 빼내고 새 이름으로 다시 넣어야 한다 — 회전과 재색칠까지 포함해서.
+        저장소를 지울 때도 마찬가지로 그 아래 자식들의 섹터를 재귀적으로 반납해야 하고,
+        엔트리를 다른 폴더로 옮기는 것도 결국 "빼고 다시 넣기"다.
+        디렉터리를 배열이 아니라 트리로 만든 대가가 여기서 나온다.
+      </p>
+    </div>
+
     <div class="insight trap">
       <div class="insight-label">가장 유명한 함정</div>
       <p>
@@ -1079,12 +1130,42 @@ footer.site a { color: var(--ink-2); }
         <li>먼저 <b>이름의 길이</b>를 비교한다 (짧은 것이 앞)</li>
         <li>길이가 같을 때만 대문자로 바꿔 비교한다</li>
       </ol>
-      <p style="margin-bottom:0">
+      <p>
         그래서 <code>"Zz"</code>가 <code>"AAA"</code>보다 <b>앞에</b> 온다.
         이 규칙을 모르고 트리를 만들면, 다른 프로그램이 이진 탐색으로 찾을 때 스트림을 못 찾는다.
         위 순회 결과를 보면 이름 길이 순으로 나열되는 것을 확인할 수 있다.
       </p>
+      <p style="margin-bottom:0">실제 Office 스트림 이름으로 직접 정렬해 보면 이렇게 된다:</p>
     </div>
+
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr>
+          <th class="num">#</th><th>이름</th><th class="num">길이</th><th>왜 이 자리인가</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="mono num">1</td><td class="mono">Data</td><td class="mono num">4</td>
+            <td>가장 짧다. 내용과 무관하게 무조건 첫 자리.</td></tr>
+          <tr><td class="mono num">2</td><td class="mono">1Table</td><td class="mono num">6</td>
+            <td rowspan="2">길이 6 묶음 안에서 대문자로 비교: <code>'1'</code>=0x31 &lt; <code>'M'</code>=0x4D</td></tr>
+          <tr><td class="mono num">3</td><td class="mono">Macros</td><td class="mono num">6</td></tr>
+          <tr><td class="mono num">4</td><td class="mono">__SRP_0</td><td class="mono num">7</td>
+            <td>길이 7. 밑줄로 시작해도 길이가 먼저다.</td></tr>
+          <tr><td class="mono num">5</td><td class="mono">‹01›CompObj</td><td class="mono num">9</td>
+            <td>제어 문자 0x01도 그냥 한 글자로 센다.</td></tr>
+          <tr><td class="mono num">6</td><td class="mono">WordDocument</td><td class="mono num">12</td>
+            <td rowspan="2">길이 12 묶음: <code>'W'</code>=0x57 &lt; <code>'_'</code>=0x5F<br>
+              <b>소문자로 접었다면 <code>'w'</code>=0x77 &gt; <code>'_'</code>=0x5F 라 순서가 뒤집힌다.</b>
+              대문자로 접어야 하는 이유가 이것이다.</td></tr>
+          <tr><td class="mono num">7</td><td class="mono">_VBA_PROJECT</td><td class="mono num">12</td></tr>
+          <tr><td class="mono num">8</td><td class="mono">‹05›SummaryInformation</td><td class="mono num">20</td>
+            <td>가장 길다. 사전순이었다면 훨씬 앞에 왔을 것이다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:.5rem">
+      위 트리 그림에서 ▶ 중위 순회를 눌러 보면 이 순서가 그대로 나온다.
+    </p>
 
     <div class="insight trap">
       <div class="insight-label">또 하나의 함정</div>
@@ -1189,6 +1270,27 @@ footer.site a { color: var(--ink-2); }
         위 슬라이더를 4032와 4096 사이에서 움직여 보면 판정이 뒤집히는 순간을 볼 수 있다.
       </p>
     </div>
+    <h3>그런데 미니 스트림이 항상 이득은 아니다</h3>
+    <p>
+      표를 유지하는 데도 값이 든다. MiniFAT은 64바이트마다 4바이트를 쓴다 — <b>6.25%</b>다.
+      일반 FAT은 512바이트마다 4바이트, <b>0.78%</b>다. 그래서 두 계단이 서로를 여러 번 넘나든다.
+      위 슬라이더를 움직이면 아래 막대가 그 교차를 보여 준다:
+      <b>449바이트쯤에서 미니가 손해로 돌아섰다가, 513바이트에서 다시 이득이 되고, 1024에서 또 뒤집힌다.</b>
+      "작으면 미니가 이득"은 크기에 따라 참이 되었다 거짓이 되었다 한다.
+    </p>
+
+    <h3>내 파일은 왜 이렇게 큰가</h3>
+    <p>
+      스트림 하나 없는 빈 CFB 파일도 최소 <b>세 섹터</b>가 필요하다 —
+      헤더 한 장, FAT 한 장, 디렉터리 한 장. v3에서 <b>1,536바이트</b>, v4에서 <b>12,288바이트</b>다.
+    </p>
+    <p>
+      여기에 <b>6바이트짜리 스트림 하나</b>를 넣으면 어떻게 될까.
+      미니 스트림이 아직 없으므로 MiniFAT 한 섹터와 미니 스트림 그릇 한 섹터가 새로 생긴다.
+      v3에서 파일은 1,536 → <b>2,560바이트</b>가 된다. <b>6바이트를 담으려고 1,024바이트를 더 쓴 것이다.</b>
+      (이 숫자들은 추정이 아니라 이 페이지의 작성기로 실제 파일을 만들어 잰 값이다.)
+    </p>
+
     <div class="insight trap">
       <div class="insight-label">함정</div>
       <p style="margin-bottom:0">
@@ -1391,7 +1493,15 @@ footer.site a { color: var(--ink-2); }
         <dt>엔트리/섹터</dt><dd>4개 (v3) · 32개 (v4)</dd>
         <dt>미니/일반 섹터</dt><dd>8개 (v3) · 64개 (v4)</dd>
         <dt>엔디언</dt><dd>전부 리틀엔디언</dd>
+        <dt>범위 잠금</dt><dd>파일 오프셋 0x7FFFFF00–0x7FFFFFFF (2 GB 지점)</dd>
       </dl>
+      <p class="note" style="margin-top:.8rem">
+        마지막 줄은 잘 알려지지 않은 규칙이다. 파일이 2 GB를 넘어가면
+        <b>파일 오프셋 0x7FFFFFFF를 덮는 섹터 하나를 실제 데이터에 쓰면 안 된다.</b>
+        옛 Windows가 그 자리를 파일 잠금용으로 썼기 때문이다.
+        그 섹터는 FAT에 ENDOFCHAIN으로 표시해 아무도 쓰지 못하게 예약한다.
+        헤더처럼 번호 없는 특별한 존재가 아니라, <b>번호는 있지만 절대 주소에 못 박힌 섹터</b>다.
+      </p>
     </div>
     <div>
       <h3 style="font-family:var(--font-display);font-size:1.05rem;margin:0 0 .8rem">구현할 때 넘어지는 지점</h3>
@@ -2247,7 +2357,73 @@ footer.site a { color: var(--ink-2); }
     };
   }
 
-  root.CFBBuild = { compose: compose, sampleSpec: sampleSpec, filetime: filetime, makeContent: makeContent };
+  /* ---------- 편집된 샘플 --------------------------------------------
+   * 갓 만들어 낸 파일은 모든 체인이 0, 1, 2, 3 … 으로 이어져 있어서
+   * 보기에는 좋지만 거짓말을 가르친다. FAT이 "범위"가 아니라 "연결
+   * 리스트"라는 사실은 체인이 앞뒤로 튈 때에만 드러난다.
+   *
+   * 그래서 샘플 문서는 한 번 편집하고 저장한 상태로 만든다.
+   * 실제 파일이 대개 그렇다. 지우고 다시 넣는 과정에서 생기는 것들:
+   *   · 앞뒤로 튀는 스트림 체인
+   *   · 중간에 구멍이 뚫린 미니 스트림 체인
+   *   · 미니 스트림 담는 그릇 자체도 흩어진다
+   *   · 아무도 안 쓰는 빈 섹터에 옛 데이터가 그대로 남는다
+   *   · 마지막 섹터의 남는 자리에 이전 세입자의 흔적이 남는다
+   * ------------------------------------------------------------------ */
+  function composeEdited(opts) {
+    opts = opts || {};
+    var built = compose(opts);
+    if (!root.CFBParse || !root.CFBOps) return built;   // 편집 모듈이 없으면 그대로
+
+    var history = [];
+    var bytes = built.bytes;
+    function step(label, fn) {
+      var p = root.CFBParse.parse(bytes);
+      if (!p.ok) return;
+      var m = root.CFBOps.toModel(p);
+      fn(m, p);
+      bytes = root.CFBOps.serialize(m);
+      history.push(label);
+    }
+    function sidOf(p, path) { return p.byPath[path] ? p.byPath[path].sid : -1; }
+
+    /* 1) 본문을 줄여 다시 쓴다 → 뒤쪽에 구멍이 남는다 */
+    step('본문을 줄여 저장', function (m, p) {
+      root.CFBOps.resizeStream(m, sidOf(p, '/WordDocument'), 6000);
+    });
+    /* 2) 속성 집합을 지운다 → 파일 뒤쪽에 두 번째 구멍 */
+    step('속성 집합 삭제', function (m, p) {
+      root.CFBOps.deleteStream(m, sidOf(p, '/\u0005SummaryInformation'));
+    });
+    /* 3) 속성 집합을 조금 크게 다시 쓴다 → 두 구멍에 걸쳐 앉으며 체인이 튄다 */
+    step('속성 집합 다시 저장', function (m, p) {
+      root.CFBOps.addStream(m, 0, '\u0005SummaryInformation',
+        makeContent('\\x05SummaryInformation', 4200, [0xfe, 0xff, 0x00, 0x00]));
+    });
+    /* 4) 미니 스트림 두 개를 지운다 → 미니 스트림 가운데가 뚫린다 */
+    step('그림 데이터 삭제', function (m, p) {
+      root.CFBOps.deleteStream(m, sidOf(p, '/Data'));
+    });
+    step('매크로 설정 삭제', function (m, p) {
+      root.CFBOps.deleteStream(m, sidOf(p, '/Macros/PROJECT'));
+    });
+    /* 5) 더 큰 그림을 넣는다 → 뚫린 자리들을 주워 담고도 모자라
+     *    미니 스트림이 커지고, 담는 그릇도 흩어진 자리에 붙는다 */
+    step('더 큰 그림 삽입', function (m, p) {
+      root.CFBOps.addStream(m, 0, 'Data', makeContent('Data', 2900, null));
+    });
+    step('매크로 설정 다시 저장', function (m, p) {
+      var mac = sidOf(p, '/Macros');
+      root.CFBOps.addStream(m, mac, 'PROJECT', makeContent('PROJECT', 380, null));
+    });
+
+    return { bytes: bytes, plan: built.plan, history: history };
+  }
+
+  root.CFBBuild = {
+    compose: compose, composeEdited: composeEdited,
+    sampleSpec: sampleSpec, filetime: filetime, makeContent: makeContent
+  };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 <script>
@@ -2945,7 +3121,10 @@ footer.site a { color: var(--ink-2); }
     link(m.fat, list);
     list.forEach(function (s, i) {
       var slice = content.subarray(i * m.SS, Math.min((i + 1) * m.SS, content.length));
-      m.sectors[s] = new Uint8Array(m.SS);
+      /* 섹터를 먼저 비우지 않는다. 실제 작성기도 가진 바이트만 쓰고,
+         남는 자리는 건드리지 않는다 — 그래서 재사용된 섹터의 꼬리에는
+         이전 세입자의 데이터가 그대로 남는다. */
+      if (!m.sectors[s]) m.sectors[s] = new Uint8Array(m.SS);
       m.sectors[s].set(slice);
     });
     return list;
@@ -4007,7 +4186,9 @@ footer.site a { color: var(--ink-2); }
       var nFat = Math.ceil(sectors / per);
       var overflow = Math.max(0, nFat - 109);
       var nDifat = overflow ? Math.ceil(overflow / (per - 1)) : 0;
-      var headerReach = 109 * per * SS;
+      /* 헤더가 차지한 섹터 한 장도 파일의 일부다. 109 × per × SS 는
+         "섹터 영역"만 세고 헤더를 빠뜨린 값이다. */
+      var headerReach = (1 + C.HEADER_DIFAT_LEN * per) * SS;
 
       sizeOut.textContent = U.bytesLabel(bytes);
       var lines = [];
@@ -4027,7 +4208,14 @@ footer.site a { color: var(--ink-2); }
       }
       lines.push('');
       lines.push('이 버전에서 헤더 DIFAT만으로 닿을 수 있는 최대 크기:');
-      lines.push('  109 × ' + per + ' × ' + SS + ' = ' + U.num(headerReach) + '바이트 = ' + U.bytesLabel(headerReach));
+      lines.push('  (1 + 109 × ' + per + ') × ' + SS + ' = ' + U.num(headerReach) +
+                 '바이트 = ' + U.bytesLabel(headerReach));
+      lines.push('  앞의 1은 헤더가 차지한 섹터다. 이걸 빼먹은 계산이 흔하다.');
+      if (SS === 512) {
+        lines.push('');
+        lines.push('※ 명세 본문은 이 값을 "약 6.875 MB"라고 적어 두었는데,');
+        lines.push('   자기가 제시한 공식대로 계산하면 6.81 MiB가 나온다. 명세도 틀릴 때가 있다.');
+      }
       out.textContent = lines.join('\n');
 
       U.clear(ladder);
@@ -4305,6 +4493,7 @@ footer.site a { color: var(--ink-2); }
     var verdict = el('div', { style: { marginTop: '.4rem', fontSize: '.9rem' } });
     var waste = el('div', { class: 'note', style: { marginTop: '.2rem' } });
     var bar = el('div', { style: { display: 'flex', gap: '2px', marginTop: '.7rem', flexWrap: 'wrap' } });
+    var tradeoff = el('div', { style: { marginTop: '.9rem' } });
     var trans = el('div', { class: 'readout', style: { marginTop: '1rem' } });
     var offIn = el('input', { class: 'btn mono', type: 'number', min: '0', value: '100', style: { width: '7rem' } });
     var streamSel = el('select', { class: 'btn' });
@@ -4314,7 +4503,7 @@ footer.site a { color: var(--ink-2); }
       el('div', { style: { flex: '1 1 280px' } }, [
         el('label', { text: '0 – 8192바이트' }), sizeIn])
     ]));
-    node.appendChild(verdict); node.appendChild(waste); node.appendChild(bar);
+    node.appendChild(verdict); node.appendChild(waste); node.appendChild(bar); node.appendChild(tradeoff);
     node.appendChild(el('hr', { style: { border: 0, borderTop: '1px solid var(--rule)', margin: '1.2rem 0' } }));
     node.appendChild(el('div', { class: 'calc' }, [
       el('div', {}, [el('label', { text: '미니 스트림' }), streamSel]),
@@ -4362,6 +4551,41 @@ footer.site a { color: var(--ink-2); }
           text: (mini ? '64B 미니 섹터' : '512B 섹터') + ' × ' + Math.ceil(n / unit2) +
                 (Math.ceil(n / unit2) > 64 ? ' (앞 64개만 표시)' : '') }));
       }
+      renderTradeoff(n);
+    }
+
+    /* 미니 스트림이 언제 손해인가 ------------------------------------------
+     * "작은 건 미니에 넣으면 이득"은 절반만 맞다. 표 비용까지 세면
+     * 두 계단이 서로를 여러 번 넘나든다.
+     *   미니 = ceil(n/64) × (64 + 4)      64바이트 + MiniFAT 4바이트
+     *   일반 = ceil(n/512) × (512 + 4)    512바이트 + FAT 4바이트
+     * (미니 스트림을 담는 그릇 자체의 값은 여기서 뺐다 — 여러 스트림이
+     *  나눠 지므로 스트림 하나에 얹기 어렵다.)                             */
+    function renderTradeoff(n) {
+      U.clear(tradeoff);
+      if (!n) return;
+      var miniCost = Math.ceil(n / 64) * 68;
+      var bigCost = Math.ceil(n / 512) * 516;
+      var rule = n < 4096 ? 'mini' : 'big';
+      var best = miniCost <= bigCost ? 'mini' : 'big';
+      var max = Math.max(miniCost, bigCost);
+      [['미니 스트림에 넣으면', miniCost, 'mini'], ['일반 섹터에 넣으면', bigCost, 'big']].forEach(function (row) {
+        tradeoff.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.25rem' } }, [
+          el('span', { style: { fontSize: '.78rem', width: 'clamp(8rem,15vw,10rem)', flex: 'none' }, text: row[0] }),
+          el('span', { style: { flex: '1', height: '.55rem', background: 'var(--surface-2)', borderRadius: '2px', overflow: 'hidden' } },
+            el('span', { style: { display: 'block', width: Math.max(2, (row[1] / max) * 100) + '%', height: '100%',
+              background: row[2] === rule ? 'var(--c-data)' : 'var(--rule)', borderRadius: '2px' } })),
+          el('span', { class: 'mono', style: { fontSize: '.74rem', width: '5.5rem', textAlign: 'right' },
+            text: U.num(row[1]) + ' B' }),
+          row[2] === rule ? el('span', { class: 'chip', text: '규칙이 고르는 쪽' }) : el('span', { style: { width: '0' } })
+        ]));
+      });
+      tradeoff.appendChild(el('p', { class: 'note', style: { margin: '.35rem 0 0' },
+        text: best === rule
+          ? '이 크기에서는 규칙이 고른 쪽이 실제로도 더 싸다.'
+          : '이 크기에서는 규칙이 고른 쪽이 오히려 ' + U.num(Math.abs(miniCost - bigCost)) +
+            '바이트 더 든다. 64바이트 계단과 512바이트 계단이 서로를 넘나들기 때문에, ' +
+            '"작으면 미니가 이득"은 크기에 따라 참이 되었다 거짓이 되었다 한다.' }));
     }
 
     function translate() {
@@ -4664,6 +4888,7 @@ footer.site a { color: var(--ink-2); }
     var packB = el('button', { class: 'btn', type: 'button', text: '조각 모음(다시 저장)' });
     var undoB = el('button', { class: 'btn', type: 'button', text: '원래대로' });
     var ghostB = el('button', { class: 'btn', type: 'button', text: '👻 지운 데이터 들춰보기' });
+    var breakB = el('button', { class: 'btn danger', type: 'button', text: '⟲ 체인에 순환 만들기' });
     var mapHost = el('div', { style: { marginTop: '.8rem' } });
     var logEl = el('div', { class: 'readout', style: { marginTop: '.8rem', maxHeight: '17rem', overflowY: 'auto' } });
     var statEl = el('div', { class: 'pill-row', style: { marginTop: '.6rem' } });
@@ -4672,7 +4897,7 @@ footer.site a { color: var(--ink-2); }
       [el('span', { class: 'note', text: '대상' }), target, delB, growB,
        el('span', { class: 'note', style: { marginLeft: '.4rem' }, text: '크기' }), sizeIn, addB]));
     node.appendChild(el('div', { class: 'panel-tools', style: { marginLeft: 0, marginTop: '.4rem' } },
-      [packB, ghostB, undoB]));
+      [packB, ghostB, breakB, undoB]));
     node.appendChild(statEl);
     node.appendChild(mapHost);
     node.appendChild(logEl);
@@ -4797,6 +5022,56 @@ footer.site a { color: var(--ink-2); }
       logEl.textContent = lines.join('\n');
       ghostSectors = free;
       map.render(cur, { ghosts: ghostSectors });
+    };
+
+    /* 순환하는 체인을 손으로 만들어 넣는다.
+     * "무한 루프에 빠진다"는 경고는 읽고 흘리기 쉽다. 직접 망가뜨려 보고
+     * 파서가 어떻게 살아남는지 보는 편이 훨씬 오래 남는다. */
+    breakB.onclick = function () {
+      var e = cur.live.filter(function (x) {
+        return x.type === C.TYPE_STREAM && !x.isMini && x.chain && x.chain.length >= 3;
+      })[0];
+      if (!e) { logEl.textContent = '섹터를 세 개 이상 쓰는 일반 스트림이 없다.'; return; }
+      var bytes = cur.bytes.slice();
+      var per = cur.sectorSize / 4;
+      var victim = e.chain[e.chain.length - 2];
+      var fatSect = cur.difat[Math.floor(victim / per)];
+      var off = cur.sectOff(fatSect) + (victim % per) * 4;
+      var before = cur.fat[victim] >>> 0;
+      new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        .setUint32(off, e.chain[0], true);
+
+      var p = root.CFBParse.parse(bytes);
+      var lines = [];
+      lines.push('"' + e.displayPath + '"의 체인을 손으로 망가뜨렸다.');
+      lines.push('');
+      lines.push('바꾼 곳: FAT[' + victim + '] — FAT 섹터 ' + fatSect + '의 파일 오프셋 ' + U.hex(off, 6));
+      lines.push('  ' + U.sect(before) + '  →  ' + e.chain[0] + '   (체인의 첫 섹터를 다시 가리키게 했다)');
+      lines.push('');
+      lines.push('이제 체인은 ' + e.chain.slice(0, -1).join(' → ') + ' → ' + e.chain[0] + ' → … 로 영원히 돈다.');
+      lines.push('순진한 while 루프라면 여기서 멈추지 않는다.');
+      lines.push('');
+      if (p.ok) {
+        var e2 = p.byPath[e.path];
+        lines.push('파서가 살아남은 이유: 이미 지나온 섹터를 Set에 담아 두고,');
+        lines.push('두 번째로 만나면 그 자리에서 멈춘다.');
+        lines.push('');
+        lines.push('파서가 남긴 경고:');
+        (p.warn.length ? p.warn : ['(없음)']).forEach(function (w) { lines.push('  ⚠ ' + w); });
+        if (e2) {
+          lines.push('');
+          lines.push('그 결과 "' + e2.displayPath + '"은 ' + (e2.chain || []).length + '섹터까지만 읽힌다 ' +
+                     '(원래 ' + e.chain.length + '섹터). 손상은 감췄지만 사라지지는 않았다.');
+        }
+        cur = p;
+        ghostSectors = [];
+        repaint();
+        U.select({ sectors: e2 ? e2.chain : [], current: victim, focus: off,
+                   ranges: [{ start: off, len: 4, tone: 1 }] });
+      } else {
+        lines.push('파서가 파일을 거부했다: ' + p.error);
+      }
+      logEl.textContent = lines.join('\n');
     };
 
     function render(p) {
@@ -4930,8 +5205,11 @@ footer.site a { color: var(--ink-2); }
     });
   }
 
+  var sampleHistory = [];
   function makeSample(major) {
-    return root.CFBBuild.compose({ major: major, timestamp: Date.UTC(2003, 3, 15, 9, 30, 0) }).bytes;
+    var r = root.CFBBuild.composeEdited({ major: major, timestamp: Date.UTC(2003, 3, 15, 9, 30, 0) });
+    sampleHistory = r.history || [];
+    return r.bytes;
   }
 
   function distribute(p, name) {
@@ -4955,6 +5233,15 @@ footer.site a { color: var(--ink-2); }
       heroDetail.appendChild(document.createTextNode(
         '칸 하나가 ' + p.sectorSize + '바이트 섹터 하나다. 색은 세 계열뿐이다 — ' +
         '파랑은 주소표, 주황은 이름표, 청록은 내용. 아무 칸이나 눌러 보자.'));
+      if (sampleHistory.length) {
+        heroDetail.appendChild(el('p', { class: 'note', style: { margin: '.5rem 0 0' } }, [
+          document.createTextNode('이 문서는 갓 만들어 낸 파일이 아니라 '),
+          el('b', { text: '몇 번 편집하고 저장한 뒤의 상태' }),
+          document.createTextNode('다 (' + sampleHistory.join(' → ') + '). ' +
+            '그래서 스트림이 섹터를 건너뛰며 이어지고, 아무도 안 쓰는 섹터에 옛 데이터가 남아 있다. ' +
+            '실제 파일이 대개 이렇다.')
+        ]));
+      }
       return;
     }
     var role = p.roles[s], own = p.owner[s] || C.ROLE_LABEL[role];

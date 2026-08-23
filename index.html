@@ -46,6 +46,9 @@
     <p class="hero-lead" style="margin-top:1rem">
       아래 그림은 이 페이지가 <strong>브라우저에서 방금 만들어 낸 진짜 CFB 파일</strong>이다.
       칸 하나가 512바이트 섹터 하나다. 눌러 보면 실제 바이트가 나온다.
+      갓 만든 깨끗한 파일이 아니라 <strong>몇 번 편집하고 저장한 뒤의 상태</strong>로 만들었다 —
+      그래야 체인이 앞뒤로 튀고, 미니 스트림 가운데가 뚫리고, 아무도 안 쓰는 섹터에 옛 데이터가 남는
+      <strong>실제 파일의 모습</strong>이 나오기 때문이다.
     </p>
 
     <div class="hero-file">
@@ -345,6 +348,21 @@
 
   <div class="prose">
     <div class="insight">
+      <div class="insight-label">이 포맷 전체를 요약하는 한 문장</div>
+      <p>
+        <b>디렉터리는 "어디서 시작하고 얼마나 긴지"를 말하고, FAT은 "다음이 어디인지"를 말한다.
+        둘 중 하나만으로는 한 바이트도 읽을 수 없다.</b>
+      </p>
+      <p style="margin-bottom:0">
+        이름과 길이는 한쪽에, 자리 배치는 다른 쪽에 나누어 둔 것 —
+        이게 CFB의 구조적 핵심이고, 유닉스의 inode와 블록 비트맵, FAT32의 디렉터리 엔트리와
+        FAT이 하는 것과 똑같은 분업이다. 이 문장을 쥐고 있으면 나머지는 대부분 복원할 수 있다.
+        <br>따라오는 결과: <b>체인의 길이와 선언된 크기는 서로 독립된 두 사실이라 반드시 일치해야 한다.</b>
+        이 중복이 곧 손상 사례의 절반이 나오는 자리다.
+      </p>
+    </div>
+
+    <div class="insight">
       <div class="insight-label">자기서술</div>
       <p>
         FAT은 <b>자기 자신도 설명한다.</b> FAT이 들어 있는 섹터는 FAT 안에서 <code>FATSECT</code>로 표시된다.
@@ -436,6 +454,28 @@
   </div>
 
   <div class="prose">
+    <h3>v4가 생긴 진짜 이유</h3>
+    <p>
+      v4를 "더 큰 파일을 담기 위한 버전"으로만 설명하면 절반만 맞다.
+      더 중요한 것은 <b>체인을 따라가는 비용</b>이다. 체인은 연결 리스트이므로
+      스트림의 마지막 바이트에 닿으려면 처음부터 한 칸씩 세어 가야 한다.
+    </p>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr><th>100 MB 스트림의 끝에 닿으려면</th><th class="num">따라가야 할 칸</th><th class="num">FAT이 차지할 메모리</th></tr></thead>
+        <tbody>
+          <tr><td>v3 — 512바이트 섹터</td><td class="mono num">204,800회</td><td class="mono num">800 KiB</td></tr>
+          <tr><td>v4 — 4096바이트 섹터</td><td class="mono num">25,600회</td><td class="mono num">100 KiB</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      섹터를 여덟 배로 키우면 체인 길이도, FAT의 크기도 여덟 분의 일이 된다.
+      거의 모든 구현이 <b>FAT 전체를 메모리에 올려놓고</b> 시작하기 때문에 두 번째 열도 그냥 넘길 수 없다 —
+      FAT은 섹터당 4바이트, 즉 <b>파일 크기의 0.78%</b>다. 2 GB짜리 v3 파일이라면
+      한 바이트를 읽기 전에 16 MiB를 먼저 읽어야 한다.
+    </p>
+
     <div class="insight">
       <div class="insight-label">왜 하필 109인가</div>
       <p>
@@ -541,6 +581,17 @@
   </div>
 
   <div class="prose">
+    <div class="insight">
+      <div class="insight-label">따라오는 결과</div>
+      <p style="margin-bottom:0">
+        이름이 곧 <b>정렬 키</b>이기 때문에, <b>스트림의 이름을 바꾸는 것은 필드 하나를 고치는 일이 아니다.</b>
+        트리에서 빼내고 새 이름으로 다시 넣어야 한다 — 회전과 재색칠까지 포함해서.
+        저장소를 지울 때도 마찬가지로 그 아래 자식들의 섹터를 재귀적으로 반납해야 하고,
+        엔트리를 다른 폴더로 옮기는 것도 결국 "빼고 다시 넣기"다.
+        디렉터리를 배열이 아니라 트리로 만든 대가가 여기서 나온다.
+      </p>
+    </div>
+
     <div class="insight trap">
       <div class="insight-label">가장 유명한 함정</div>
       <p>
@@ -550,12 +601,42 @@
         <li>먼저 <b>이름의 길이</b>를 비교한다 (짧은 것이 앞)</li>
         <li>길이가 같을 때만 대문자로 바꿔 비교한다</li>
       </ol>
-      <p style="margin-bottom:0">
+      <p>
         그래서 <code>"Zz"</code>가 <code>"AAA"</code>보다 <b>앞에</b> 온다.
         이 규칙을 모르고 트리를 만들면, 다른 프로그램이 이진 탐색으로 찾을 때 스트림을 못 찾는다.
         위 순회 결과를 보면 이름 길이 순으로 나열되는 것을 확인할 수 있다.
       </p>
+      <p style="margin-bottom:0">실제 Office 스트림 이름으로 직접 정렬해 보면 이렇게 된다:</p>
     </div>
+
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr>
+          <th class="num">#</th><th>이름</th><th class="num">길이</th><th>왜 이 자리인가</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="mono num">1</td><td class="mono">Data</td><td class="mono num">4</td>
+            <td>가장 짧다. 내용과 무관하게 무조건 첫 자리.</td></tr>
+          <tr><td class="mono num">2</td><td class="mono">1Table</td><td class="mono num">6</td>
+            <td rowspan="2">길이 6 묶음 안에서 대문자로 비교: <code>'1'</code>=0x31 &lt; <code>'M'</code>=0x4D</td></tr>
+          <tr><td class="mono num">3</td><td class="mono">Macros</td><td class="mono num">6</td></tr>
+          <tr><td class="mono num">4</td><td class="mono">__SRP_0</td><td class="mono num">7</td>
+            <td>길이 7. 밑줄로 시작해도 길이가 먼저다.</td></tr>
+          <tr><td class="mono num">5</td><td class="mono">‹01›CompObj</td><td class="mono num">9</td>
+            <td>제어 문자 0x01도 그냥 한 글자로 센다.</td></tr>
+          <tr><td class="mono num">6</td><td class="mono">WordDocument</td><td class="mono num">12</td>
+            <td rowspan="2">길이 12 묶음: <code>'W'</code>=0x57 &lt; <code>'_'</code>=0x5F<br>
+              <b>소문자로 접었다면 <code>'w'</code>=0x77 &gt; <code>'_'</code>=0x5F 라 순서가 뒤집힌다.</b>
+              대문자로 접어야 하는 이유가 이것이다.</td></tr>
+          <tr><td class="mono num">7</td><td class="mono">_VBA_PROJECT</td><td class="mono num">12</td></tr>
+          <tr><td class="mono num">8</td><td class="mono">‹05›SummaryInformation</td><td class="mono num">20</td>
+            <td>가장 길다. 사전순이었다면 훨씬 앞에 왔을 것이다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:.5rem">
+      위 트리 그림에서 ▶ 중위 순회를 눌러 보면 이 순서가 그대로 나온다.
+    </p>
 
     <div class="insight trap">
       <div class="insight-label">또 하나의 함정</div>
@@ -660,6 +741,27 @@
         위 슬라이더를 4032와 4096 사이에서 움직여 보면 판정이 뒤집히는 순간을 볼 수 있다.
       </p>
     </div>
+    <h3>그런데 미니 스트림이 항상 이득은 아니다</h3>
+    <p>
+      표를 유지하는 데도 값이 든다. MiniFAT은 64바이트마다 4바이트를 쓴다 — <b>6.25%</b>다.
+      일반 FAT은 512바이트마다 4바이트, <b>0.78%</b>다. 그래서 두 계단이 서로를 여러 번 넘나든다.
+      위 슬라이더를 움직이면 아래 막대가 그 교차를 보여 준다:
+      <b>449바이트쯤에서 미니가 손해로 돌아섰다가, 513바이트에서 다시 이득이 되고, 1024에서 또 뒤집힌다.</b>
+      "작으면 미니가 이득"은 크기에 따라 참이 되었다 거짓이 되었다 한다.
+    </p>
+
+    <h3>내 파일은 왜 이렇게 큰가</h3>
+    <p>
+      스트림 하나 없는 빈 CFB 파일도 최소 <b>세 섹터</b>가 필요하다 —
+      헤더 한 장, FAT 한 장, 디렉터리 한 장. v3에서 <b>1,536바이트</b>, v4에서 <b>12,288바이트</b>다.
+    </p>
+    <p>
+      여기에 <b>6바이트짜리 스트림 하나</b>를 넣으면 어떻게 될까.
+      미니 스트림이 아직 없으므로 MiniFAT 한 섹터와 미니 스트림 그릇 한 섹터가 새로 생긴다.
+      v3에서 파일은 1,536 → <b>2,560바이트</b>가 된다. <b>6바이트를 담으려고 1,024바이트를 더 쓴 것이다.</b>
+      (이 숫자들은 추정이 아니라 이 페이지의 작성기로 실제 파일을 만들어 잰 값이다.)
+    </p>
+
     <div class="insight trap">
       <div class="insight-label">함정</div>
       <p style="margin-bottom:0">
@@ -862,7 +964,15 @@
         <dt>엔트리/섹터</dt><dd>4개 (v3) · 32개 (v4)</dd>
         <dt>미니/일반 섹터</dt><dd>8개 (v3) · 64개 (v4)</dd>
         <dt>엔디언</dt><dd>전부 리틀엔디언</dd>
+        <dt>범위 잠금</dt><dd>파일 오프셋 0x7FFFFF00–0x7FFFFFFF (2 GB 지점)</dd>
       </dl>
+      <p class="note" style="margin-top:.8rem">
+        마지막 줄은 잘 알려지지 않은 규칙이다. 파일이 2 GB를 넘어가면
+        <b>파일 오프셋 0x7FFFFFFF를 덮는 섹터 하나를 실제 데이터에 쓰면 안 된다.</b>
+        옛 Windows가 그 자리를 파일 잠금용으로 썼기 때문이다.
+        그 섹터는 FAT에 ENDOFCHAIN으로 표시해 아무도 쓰지 못하게 예약한다.
+        헤더처럼 번호 없는 특별한 존재가 아니라, <b>번호는 있지만 절대 주소에 못 박힌 섹터</b>다.
+      </p>
     </div>
     <div>
       <h3 style="font-family:var(--font-display);font-size:1.05rem;margin:0 0 .8rem">구현할 때 넘어지는 지점</h3>

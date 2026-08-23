@@ -45,8 +45,11 @@
     });
   }
 
+  var sampleHistory = [];
   function makeSample(major) {
-    return root.CFBBuild.compose({ major: major, timestamp: Date.UTC(2003, 3, 15, 9, 30, 0) }).bytes;
+    var r = root.CFBBuild.composeEdited({ major: major, timestamp: Date.UTC(2003, 3, 15, 9, 30, 0) });
+    sampleHistory = r.history || [];
+    return r.bytes;
   }
 
   function distribute(p, name) {
@@ -70,6 +73,15 @@
       heroDetail.appendChild(document.createTextNode(
         '칸 하나가 ' + p.sectorSize + '바이트 섹터 하나다. 색은 세 계열뿐이다 — ' +
         '파랑은 주소표, 주황은 이름표, 청록은 내용. 아무 칸이나 눌러 보자.'));
+      if (sampleHistory.length) {
+        heroDetail.appendChild(el('p', { class: 'note', style: { margin: '.5rem 0 0' } }, [
+          document.createTextNode('이 문서는 갓 만들어 낸 파일이 아니라 '),
+          el('b', { text: '몇 번 편집하고 저장한 뒤의 상태' }),
+          document.createTextNode('다 (' + sampleHistory.join(' → ') + '). ' +
+            '그래서 스트림이 섹터를 건너뛰며 이어지고, 아무도 안 쓰는 섹터에 옛 데이터가 남아 있다. ' +
+            '실제 파일이 대개 이렇다.')
+        ]));
+      }
       return;
     }
     var role = p.roles[s], own = p.owner[s] || C.ROLE_LABEL[role];

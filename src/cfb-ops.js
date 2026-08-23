@@ -216,7 +216,10 @@
     link(m.fat, list);
     list.forEach(function (s, i) {
       var slice = content.subarray(i * m.SS, Math.min((i + 1) * m.SS, content.length));
-      m.sectors[s] = new Uint8Array(m.SS);
+      /* 섹터를 먼저 비우지 않는다. 실제 작성기도 가진 바이트만 쓰고,
+         남는 자리는 건드리지 않는다 — 그래서 재사용된 섹터의 꼬리에는
+         이전 세입자의 데이터가 그대로 남는다. */
+      if (!m.sectors[s]) m.sectors[s] = new Uint8Array(m.SS);
       m.sectors[s].set(slice);
     });
     return list;

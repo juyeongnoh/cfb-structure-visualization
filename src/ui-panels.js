@@ -312,7 +312,9 @@
       var nFat = Math.ceil(sectors / per);
       var overflow = Math.max(0, nFat - 109);
       var nDifat = overflow ? Math.ceil(overflow / (per - 1)) : 0;
-      var headerReach = 109 * per * SS;
+      /* 헤더가 차지한 섹터 한 장도 파일의 일부다. 109 × per × SS 는
+         "섹터 영역"만 세고 헤더를 빠뜨린 값이다. */
+      var headerReach = (1 + C.HEADER_DIFAT_LEN * per) * SS;
 
       sizeOut.textContent = U.bytesLabel(bytes);
       var lines = [];
@@ -332,7 +334,14 @@
       }
       lines.push('');
       lines.push('이 버전에서 헤더 DIFAT만으로 닿을 수 있는 최대 크기:');
-      lines.push('  109 × ' + per + ' × ' + SS + ' = ' + U.num(headerReach) + '바이트 = ' + U.bytesLabel(headerReach));
+      lines.push('  (1 + 109 × ' + per + ') × ' + SS + ' = ' + U.num(headerReach) +
+                 '바이트 = ' + U.bytesLabel(headerReach));
+      lines.push('  앞의 1은 헤더가 차지한 섹터다. 이걸 빼먹은 계산이 흔하다.');
+      if (SS === 512) {
+        lines.push('');
+        lines.push('※ 명세 본문은 이 값을 "약 6.875 MB"라고 적어 두었는데,');
+        lines.push('   자기가 제시한 공식대로 계산하면 6.81 MiB가 나온다. 명세도 틀릴 때가 있다.');
+      }
       out.textContent = lines.join('\n');
 
       U.clear(ladder);
@@ -610,6 +619,7 @@
     var verdict = el('div', { style: { marginTop: '.4rem', fontSize: '.9rem' } });
     var waste = el('div', { class: 'note', style: { marginTop: '.2rem' } });
     var bar = el('div', { style: { display: 'flex', gap: '2px', marginTop: '.7rem', flexWrap: 'wrap' } });
+    var tradeoff = el('div', { style: { marginTop: '.9rem' } });
     var trans = el('div', { class: 'readout', style: { marginTop: '1rem' } });
     var offIn = el('input', { class: 'btn mono', type: 'number', min: '0', value: '100', style: { width: '7rem' } });
     var streamSel = el('select', { class: 'btn' });
@@ -619,7 +629,7 @@
       el('div', { style: { flex: '1 1 280px' } }, [
         el('label', { text: '0 – 8192바이트' }), sizeIn])
     ]));
-    node.appendChild(verdict); node.appendChild(waste); node.appendChild(bar);
+    node.appendChild(verdict); node.appendChild(waste); node.appendChild(bar); node.appendChild(tradeoff);
     node.appendChild(el('hr', { style: { border: 0, borderTop: '1px solid var(--rule)', margin: '1.2rem 0' } }));
     node.appendChild(el('div', { class: 'calc' }, [
       el('div', {}, [el('label', { text: '미니 스트림' }), streamSel]),
@@ -667,6 +677,41 @@
           text: (mini ? '64B 미니 섹터' : '512B 섹터') + ' × ' + Math.ceil(n / unit2) +
                 (Math.ceil(n / unit2) > 64 ? ' (앞 64개만 표시)' : '') }));
       }
+      renderTradeoff(n);
+    }
+
+    /* 미니 스트림이 언제 손해인가 ------------------------------------------
+     * "작은 건 미니에 넣으면 이득"은 절반만 맞다. 표 비용까지 세면
+     * 두 계단이 서로를 여러 번 넘나든다.
+     *   미니 = ceil(n/64) × (64 + 4)      64바이트 + MiniFAT 4바이트
+     *   일반 = ceil(n/512) × (512 + 4)    512바이트 + FAT 4바이트
+     * (미니 스트림을 담는 그릇 자체의 값은 여기서 뺐다 — 여러 스트림이
+     *  나눠 지므로 스트림 하나에 얹기 어렵다.)                             */
+    function renderTradeoff(n) {
+      U.clear(tradeoff);
+      if (!n) return;
+      var miniCost = Math.ceil(n / 64) * 68;
+      var bigCost = Math.ceil(n / 512) * 516;
+      var rule = n < 4096 ? 'mini' : 'big';
+      var best = miniCost <= bigCost ? 'mini' : 'big';
+      var max = Math.max(miniCost, bigCost);
+      [['미니 스트림에 넣으면', miniCost, 'mini'], ['일반 섹터에 넣으면', bigCost, 'big']].forEach(function (row) {
+        tradeoff.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.25rem' } }, [
+          el('span', { style: { fontSize: '.78rem', width: 'clamp(8rem,15vw,10rem)', flex: 'none' }, text: row[0] }),
+          el('span', { style: { flex: '1', height: '.55rem', background: 'var(--surface-2)', borderRadius: '2px', overflow: 'hidden' } },
+            el('span', { style: { display: 'block', width: Math.max(2, (row[1] / max) * 100) + '%', height: '100%',
+              background: row[2] === rule ? 'var(--c-data)' : 'var(--rule)', borderRadius: '2px' } })),
+          el('span', { class: 'mono', style: { fontSize: '.74rem', width: '5.5rem', textAlign: 'right' },
+            text: U.num(row[1]) + ' B' }),
+          row[2] === rule ? el('span', { class: 'chip', text: '규칙이 고르는 쪽' }) : el('span', { style: { width: '0' } })
+        ]));
+      });
+      tradeoff.appendChild(el('p', { class: 'note', style: { margin: '.35rem 0 0' },
+        text: best === rule
+          ? '이 크기에서는 규칙이 고른 쪽이 실제로도 더 싸다.'
+          : '이 크기에서는 규칙이 고른 쪽이 오히려 ' + U.num(Math.abs(miniCost - bigCost)) +
+            '바이트 더 든다. 64바이트 계단과 512바이트 계단이 서로를 넘나들기 때문에, ' +
+            '"작으면 미니가 이득"은 크기에 따라 참이 되었다 거짓이 되었다 한다.' }));
     }
 
     function translate() {
