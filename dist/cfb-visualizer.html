@@ -684,7 +684,18 @@ footer.site a { color: var(--ink-2); }
       <li><b>Outlook 메시지</b>: <code>.msg</code></li>
       <li><b>Thumbs.db</b>, 일부 <code>.vsd</code>(Visio), <code>.pub</code>(Publisher), Autodesk Inventor <code>.ipt</code></li>
       <li><b>암호가 걸린 OOXML</b>: 암호화된 <code>.docx</code>는 CFB 껍데기 안에 들어간다</li>
+      <li><b>한글 문서</b>: <code>.hwp</code> (HWP 5.0) — 한국 정부·교육기관의 사실상 표준</li>
     </ul>
+
+    <div class="insight">
+      <div class="insight-label">이어지는 편</div>
+      <p style="margin-bottom:0">
+        <code>.hwp</code>는 이 컨테이너를 그대로 쓰면서, 그 안에 <b>완전히 다른 두 번째 구조</b>를
+        얹었다 — 스트림을 통째로 압축해 두고, 압축을 풀면 "레코드"가 나온다.
+        그리고 그 레코드들은 <b>포인터 없이 숫자 하나로</b> 트리를 이룬다.
+        <a href="https://claude.ai/code/artifact/3f54379a-be8e-4594-954c-1e9e719970d8">HWP 편 — 레코드로 쓴 문서</a>에서 이어서 볼 수 있다.
+      </p>
+    </div>
 
     <div class="insight trap">
       <div class="insight-label">흔한 오해</div>
@@ -1537,6 +1548,7 @@ footer.site a { color: var(--ink-2); }
       <li><b>olefile</b> (Python), <b>oletools</b> — 분석과 포렌식 쪽에서 사실상 표준.</li>
       <li><b>SheetJS의 CFB 모듈</b> (JavaScript), <b>cfb</b> 크레이트 (Rust) — 짧고 읽기 좋은 구현.</li>
       <li><b>LibreOffice <code>sot</code> 모듈</b> — 실무에서 만나는 깨진 파일들을 어떻게 견디는지 볼 수 있다.</li>
+      <li><a href="https://claude.ai/code/artifact/3f54379a-be8e-4594-954c-1e9e719970d8"><b>HWP 편 — 레코드로 쓴 문서</b></a> — 같은 컨테이너 위에 한글이 무엇을 얹었는가.</li>
     </ul>
   </div>
  </div>
